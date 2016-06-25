@@ -1,0 +1,10 @@
+META-INF/
+META-INF/MANIFEST.MF
+META-INF/services/
+META-INF/services/javax.annotation.processing.Processor
+org/
+org/inferred/
+org/inferred/freevisitor/
+org/inferred/freevisitor/FreeVisitor.class
+org/inferred/freevisitor/processor
+org/inferred/freevisitor/shaded

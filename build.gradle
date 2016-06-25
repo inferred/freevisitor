@@ -1,0 +1,353 @@
+plugins {
+  id 'checkstyle'
+  id 'eclipse'
+  id 'java'
+  id 'com.github.johnrengelman.shadow' version '1.2.3'
+  id 'org.inferred.processors' version '1.2.3'
+}
+
+repositories {
+  mavenCentral()
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+dependencies {
+  compile commonsLang3
+  compile guava
+  processor autoService
+  processor 'org.inferred:freebuilder:1.10.3'
+
+  testCompile guavaTestlib
+  testCompile gwtUser
+  testCompile hamcrest
+  testCompile junit
+  testCompile mockito
+  testCompile 'org.assertj:assertj-core:3.4.1'
+  testCompile 'org.assertj:assertj-guava:3.0.0'
+}
+
+tasks.withType(Test) {
+  testLogging {
+    events "passed", "skipped", "failed"
+  }
+}
+
+//// Checkstyle //////////////////////////////////////////////////
+checkstyle {
+  toolVersion = "6.19"
+  configProperties['config_loc'] = "$rootDir/config/checkstyle"
+}
+
+tasks.withType(Checkstyle).each { checkstyleTask ->
+  checkstyleTask.doLast {
+    reports.all { report ->
+      def outputFile = report.destination
+      if (outputFile.exists() && outputFile.text.contains("<error ")) {
+        throw new GradleException("There were checkstyle warnings! See $outputFile")
+      }
+    }
+  }
+}
+
+eclipse.project {
+  natures 'net.sf.eclipsecs.core.CheckstyleNature'
+  buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+}
+
+//// Shadow JAR //////////////////////////////////////////////////
+jar {
+  classifier = 'only'
+}
+
+shadowJar {
+  classifier = null
+
+  ['com.google', 'org.apache', 'org.eclipse', 'org.osgi'].each {
+    relocate it, "org.inferred.freevisitor.shaded.$it"
+  }
+
+  // Exclude common META-INF detritus
+  exclude 'META-INF/*.txt'
+  exclude 'META-INF/maven/**'
+
+  // Exclude Eclipse (via google-java-format) detritus
+  exclude 'META-INF/eclipse.inf'
+  exclude 'META-INF/services/org.osgi.*'
+  exclude '.api_description'
+  exclude '.options'
+  exclude 'about.html'
+  exclude 'about_files/*.txt'
+  exclude 'ant_tasks/*'
+  exclude 'plugin.xml'
+  exclude 'jdtCompilerAdapter.jar'
+  exclude '*.profile'
+  exclude '*.properties'
+  exclude '*.list'
+}
+
+import java.util.zip.ZipFile
+import java.util.zip.ZipException
+
+task shadowTest {
+  description 'Verifies freevisitor.jar is shaded correctly.'
+  group = 'Verification'
+  check.dependsOn it
+  shouldRunAfter test
+  dependsOn shadowJar
+  def expected = new File("$projectDir/jar-footprint.txt")
+  def report = new File("$reportsDir/shadowJarFootprint.txt")
+  inputs.file shadowJar.outputs
+  inputs.file expected
+  outputs.file report
+  doFirst {
+    def jar = shadowJar.outputs.files[0]
+    def zip = new ZipFile(jar)
+    def folders = new TreeSet<String>(zip.entries().collect {
+      it.toString().replaceAll('([^/]*(/[^/]*){0,3}).*', '$1')
+    })
+    def expectedFolders = new TreeSet<String>(expected.readLines())
+    report.parentFile.mkdirs()
+    if (expectedFolders != folders) {
+      def message = new StringBuilder('shadow.jar incorrect')
+      def missing = expectedFolders - folders
+      if (!missing.isEmpty()) {
+        message.append('\nThe following are missing:')
+        missing.forEach { message.append('\n  - ').append(it) }
+      }
+      def extra = folders - expectedFolders
+      if (!extra.isEmpty()) {
+        message.append('\nThe following should not be present:')
+        extra.forEach { message.append('\n  - ').append(it) }
+      }
+
+      report.write message.toString()
+      throw new GradleException(message.toString())
+    }
+    report.write 'shadow.jar correct'
+  }
+}
+
+//// J8 integration tests ////////////////////////////////////////
+configurations {
+  j8Compile
+  j8TestCompile.extendsFrom j8Compile
+}
+dependencies {
+  j8Compile guava
+  j8Compile gwtUser
+  j8TestCompile junit
+}
+
+sourceSets {
+  j8 {
+    java {
+      srcDir file('src/it/j8/main/java')
+      compileClasspath += shadowJar.outputs.files
+    }
+  }
+  j8Test {
+    java {
+      srcDir file('src/it/j8/test/java')
+      compileClasspath += j8.output
+      runtimeClasspath += j8.output
+    }
+  }
+}
+
+task("j8Test", type: Test) {
+  description 'Runs the Java 8 integration tests.'
+  group = 'Verification'
+  check.dependsOn it
+  shouldRunAfter test
+  testClassesDir = sourceSets["j8Test"].output.classesDir
+  classpath = sourceSets["j8Test"].runtimeClasspath
+  reports {
+    html {
+      destination "$reportsDir/j8"
+    }
+  }
+}
+
+//// Eclipse /////////////////////////////////////////////////////
+eclipse.classpath {
+  // Only compile src/main/java
+  file.withXml { xml ->
+    node = xml.asNode()
+    node.findAll { it.@kind == 'src' && it.@path != 'src/main/java' }.each { src ->
+        node.remove(src)
+    }
+  }
+  // Don't include test dependencies in the classpath
+  plusConfigurations.clear()
+  plusConfigurations += [ configurations.compileClasspath, configurations.processor ]
+}
+// Exclude everything in src except src/main
+eclipse.project.file.withXml {
+  if (asNode().find { it.name() == 'filteredResources' } == null) {
+    asNode().append(new XmlParser().parseText("""
+      <filteredResources>
+        <filter>
+          <id>""" + System.currentTimeMillis() + """</id>
+          <name>src</name>
+          <type>9</type>
+          <matcher>
+            <id>org.eclipse.ui.ide.multiFilter</id>
+            <arguments>1.0-name-matches-false-false-main</arguments>
+          </matcher>
+        </filter>
+      </filteredResources>
+    """))
+  }
+}
+
+import org.gradle.plugins.ide.eclipse.model.EclipseModel
+extensions.create("eclipseTest", EclipseModel)
+extensions.create("eclipseJ8Test", EclipseModel)
+
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
+task eclipseTestProject(type: GenerateEclipseProject) {
+  description = 'Generates the Eclipse test project file.'
+  inputFile = project.file('.test/.project')
+  outputFile = inputFile
+  projectModel.name = project.name + '-test'
+  projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
+  projectModel.natures "org.eclipse.jdt.core.javanature"
+  projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
+  projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+  projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src'
+  eclipseTest.project = projectModel
+  tasks.eclipse.dependsOn it
+}
+task eclipseJ8TestProject(type: GenerateEclipseProject) {
+  description = 'Generates the Eclipse Java 8 test project file.'
+  inputFile = project.file('.j8test/.project')
+  outputFile = inputFile
+  projectModel.name = project.name + '-test-j8'
+  projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
+  projectModel.natures "org.eclipse.jdt.core.javanature"
+  projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
+  projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+  projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src/it/j8'
+  eclipseJ8Test.project = projectModel
+  tasks.eclipse.dependsOn it
+}
+
+import org.gradle.plugins.ide.eclipse.GenerateEclipseJdt
+task eclipseTestJdt(type: GenerateEclipseJdt) {
+  description = 'Generates the Eclipse test JDT settings file.'
+  inputFile = project.file('.test/.settings/org.eclipse.jdt.core.prefs')
+  outputFile = inputFile
+  eclipseTest.jdt = jdt
+  jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileTestJava.sourceCompatibility) }
+  jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileTestJava.targetCompatibility) }
+  jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
+  tasks.eclipse.dependsOn it
+}
+task eclipseJ8TestJdt(type: GenerateEclipseJdt) {
+  description = 'Generates the Eclipse Java 8 test JDT settings file.'
+  inputFile = project.file('.j8test/.settings/org.eclipse.jdt.core.prefs')
+  outputFile = inputFile
+  eclipseJ8Test.jdt = jdt
+  jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileJ8TestJava.sourceCompatibility) }
+  jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileJ8TestJava.targetCompatibility) }
+  jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
+  tasks.eclipse.dependsOn it
+}
+
+import org.gradle.api.internal.plugins.DslObject
+import org.gradle.internal.xml.XmlTransformer
+import org.gradle.plugins.ide.api.XmlFileContentMerger
+import org.gradle.plugins.ide.eclipse.GenerateEclipseClasspath
+import org.gradle.plugins.ide.eclipse.model.EclipseClasspath
+task eclipseTestClasspath(type: GenerateEclipseClasspath) {
+  description = 'Generates the Eclipse test classpath file.'
+  inputFile = project.file('.test/.classpath')
+  outputFile = inputFile
+  classpath = new EclipseClasspath(project)
+  classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
+  classpath.sourceSets = []
+  project.afterEvaluate {
+    Set<String> containers = new LinkedHashSet<>()
+    containers.add(
+        'org.eclipse.jdt.launching.JRE_CONTAINER/'
+            + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
+            + eclipseTest.jdt.javaRuntimeName + '/')
+    containers.addAll(classpath.containers)
+    classpath.containers = containers
+  }
+  classpath.plusConfigurations += [
+    configurations.testCompileClasspath
+  ]
+  classpath.defaultOutputDir = project.file('.test/bin')
+  dependsOn sourceSets.main.output.dirs
+  dependsOn sourceSets.test.output.dirs
+  eclipseTest.classpath = classpath
+  tasks.eclipse.dependsOn it
+}
+task eclipseJ8TestClasspath(type: GenerateEclipseClasspath) {
+  description = 'Generates the Eclipse Java 8 test classpath file.'
+  inputFile = project.file('.j8test/.classpath')
+  outputFile = inputFile
+  classpath = new EclipseClasspath(project)
+  classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
+  classpath.sourceSets = []
+  project.afterEvaluate {
+    Set<String> containers = new LinkedHashSet<>()
+    containers.add(
+        'org.eclipse.jdt.launching.JRE_CONTAINER/'
+            + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
+            + eclipseJ8Test.jdt.javaRuntimeName + '/')
+    containers.addAll(classpath.containers)
+    classpath.containers = containers
+  }
+  classpath.plusConfigurations += [
+    configurations.j8TestCompileClasspath
+  ]
+  classpath.defaultOutputDir = project.file('.j8test/bin')
+  dependsOn sourceSets.main.output.dirs
+  dependsOn sourceSets.j8Test.output.dirs
+  eclipseJ8Test.classpath = classpath
+  tasks.eclipse.dependsOn it
+}
+
+void addClasspathEntry(def node, String... paths) {
+  for (String path : paths) {
+    if (node.find { it.@kind == 'src' && it.@path == path } == null) {
+      node.appendNode('classpathentry', [
+          combineaccessrules: path.startsWith('/') ? 'false' : 'true',
+          kind: 'src',
+          path: path
+      ])
+    }
+  }
+}
+
+eclipse.classpath.file.withXml { xml ->
+  addClasspathEntry(xml.asNode(), '/source')
+}
+
+eclipseTest.classpath.file.withXml { xml ->
+  addClasspathEntry(xml.asNode(), '/' + project.name, '/source', '/source-testing', 'src/test/java')
+  // Exclude everything in src except src/main
+  if (asNode().find { it.name() == 'filteredResources' } == null) {
+    asNode().append(new XmlParser().parseText("""
+      <filteredResources>
+        <filter>
+          <id>""" + System.currentTimeMillis() + """</id>
+          <name>src</name>
+          <type>9</type>
+          <matcher>
+            <id>org.eclipse.ui.ide.multiFilter</id>
+            <arguments>1.0-name-matches-false-false-test</arguments>
+          </matcher>
+        </filter>
+      </filteredResources>
+    """))
+  }
+}
+eclipseJ8Test.classpath.file.withXml { xml ->
+  addClasspathEntry(xml.asNode(), '/' + project.name,  'src/main/java', 'src/test/java')
+}
