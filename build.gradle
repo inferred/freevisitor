@@ -10,12 +10,16 @@ repositories {
   mavenCentral()
 }
 
+group = 'org.inferred'
+
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
 dependencies {
   compile commonsLang3
   compile guava
+  compile googleJavaFormat  // TODO replace with org.inferred.internal:source
+  compile files('../inferred/source/build/libs/source.jar')
   processor autoService
   processor 'org.inferred:freebuilder:1.10.3'
 
@@ -65,7 +69,7 @@ shadowJar {
   classifier = null
 
   ['com.google', 'org.apache', 'org.eclipse', 'org.osgi'].each {
-    relocate it, "org.inferred.freevisitor.shaded.$it"
+    relocate it, "${project.group}.${project.name}.shaded.$it"
   }
 
   // Exclude common META-INF detritus
@@ -91,7 +95,7 @@ import java.util.zip.ZipFile
 import java.util.zip.ZipException
 
 task shadowTest {
-  description 'Verifies freevisitor.jar is shaded correctly.'
+  description "Verifies ${project.name}.jar is shaded correctly."
   group = 'Verification'
   check.dependsOn it
   shouldRunAfter test
@@ -200,6 +204,102 @@ eclipse.project.file.withXml {
       </filteredResources>
     """))
   }
+}
+
+// Set up plugin nature
+eclipse.project {
+  natures 'org.eclipse.pde.PluginNature'
+  buildCommand 'org.eclipse.pde.ManifestBuilder'
+  buildCommand 'org.eclipse.pde.SchemaBuilder'
+}
+
+// Copy runtime JARs to plugin/jars
+task eclipsePluginJars(type: Sync) {
+  from configurations.runtime
+  into 'plugin/jars'
+  include '*.jar'
+  tasks.eclipse.dependsOn it
+  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginJars
+}
+
+// Copy processor JARs to plugin/processor-jars
+task eclipsePluginProcessorJars(type: Sync) {
+  from configurations.processor
+  into 'plugin/processor-jars'
+  include '*.jar'
+  tasks.eclipse.dependsOn it
+  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginProcessorJars
+}
+
+// Write build.properties
+import java.nio.file.Path
+task eclipseBuildProperties {
+  ext.output = file('build.properties')
+  dependsOn tasks.eclipsePluginJars, tasks.eclipsePluginProcessorJars
+  inputs.file eclipsePluginJars.outputs
+  outputs.file output
+  doLast {
+    output.withWriter('UTF-8') {
+      it.write "source.${project.name}.jar = src/main/java/,\\\n"
+      it.write '                         generated_src/\n'
+      it.write "jars.compile.order = ${project.name}.jar\n"
+      it.write "output.${project.name}.jar = bin/\n"
+      it.write 'bin.includes = META-INF/,\\\n'
+      it.write '               plugin.xml'
+      for (File jar : file('plugin/jars').listFiles()) {
+        Path relativePath = file('.').toPath().relativize(jar.toPath())
+        it.write ',\\\n               ' + relativePath
+      }
+      it.write '\n'
+      it.write 'jars.extra.classpath = '
+      def prefix = ''
+      def compileJars = file('plugin/jars').listFiles() + file('plugin/processor-jars').listFiles()
+      for (File jar : compileJars) {
+        Path relativePath = file('.').toPath().relativize(jar.toPath())
+        it.write "$prefix$relativePath"
+        prefix = ',\\\n                       '
+      }
+      it.write '\n'
+    }
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseBuildProperties {
+  outputs.file eclipseBuildProperties.output
+  doLast {
+    eclipseBuildProperties.output.delete()
+  }
+  tasks.cleanEclipse.dependsOn it
+}
+
+// Write META-INF/MANIFEST.MF
+task eclipseJar(type: Jar) {
+  manifest {
+    attributes(
+      'Bundle-ManifestVersion': '2',
+      'Bundle-SymbolicName': "${project.name};singleton:=true",
+      'Bundle-Version': version ?: '0.0.0',
+      'Bundle-ClassPath': "${project.name}.jar",
+      'Bundle-RequiredExecutionEnvironment': "JavaSE-${compileJava.sourceCompatibility}",
+      'Bundle-Vendor': project.group,
+    )
+    from 'config/manifest.mf'
+  }
+}
+task eclipseManifest {
+  ext.output = file('META-INF/MANIFEST.MF')
+  outputs.file output
+  doLast {
+    eclipseJar.manifest.writeTo(output)
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseManifest {
+  outputs.file eclipseManifest.output
+  doLast {
+    eclipseManifest.output.delete()
+  }
+  tasks.cleanEclipse.dependsOn it
 }
 
 import org.gradle.plugins.ide.eclipse.model.EclipseModel

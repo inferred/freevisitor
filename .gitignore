@@ -11,6 +11,10 @@ gen/
 .classpath
 .project
 .test
+plugin/
+build.properties
+*.jar
+META-INF/MANIFEST.MF
 
 # Intellij project files
 *.iml
