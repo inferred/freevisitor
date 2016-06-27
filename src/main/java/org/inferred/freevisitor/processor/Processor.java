@@ -29,7 +29,7 @@ public class Processor extends SimpleTypeProcessor {
 
   @Override
   protected void init() {
-    analyser = new Analyser(messager, types);
+    analyser = new Analyser(elements, messager, types);
   }
 
   @Override

@@ -3,6 +3,7 @@ package org.inferred.freevisitor.processor;
 import static java.util.Comparator.comparing;
 import static java.util.stream.Collectors.toList;
 import static javax.lang.model.util.ElementFilter.typesIn;
+import static org.inferred.freevisitor.processor.eclipse.EclipseProjects.eclipseProjectTypes;
 import static org.inferred.internal.source.ModelUtils.maybeType;
 
 import com.google.common.base.Joiner;
@@ -13,21 +14,25 @@ import org.inferred.internal.source.QualifiedName;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import javax.annotation.processing.Messager;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 import javax.tools.Diagnostic.Kind;
 
 class Analyser {
 
+  private final Elements elements;
   private final Messager messager;
   private final Types types;
 
-  Analyser(Messager messager, Types types) {
+  Analyser(Elements elements, Messager messager, Types types) {
+    this.elements = elements;
     this.messager = messager;
     this.types = types;
   }
@@ -48,7 +53,7 @@ class Analyser {
 
   private List<QualifiedName> visitedSubtypes(
       TypeElement visitedType, Set<? extends Element> allRootElements) {
-    return typesIn(allRootElements).stream()
+    return Stream.concat(typesIn(allRootElements).stream(), eclipseProjectTypes(elements))
         .filter(root -> {
             boolean isConcrete = !root.getModifiers().contains(Modifier.ABSTRACT);
             boolean isSubtype = types.isSubtype(root.asType(), visitedType.asType());
@@ -56,6 +61,7 @@ class Analyser {
         })
         .map(QualifiedName::of)
         .sorted(comparing(QualifiedName::getSimpleName))
+        .distinct()
         .collect(toList());
   }
 

@@ -14,25 +14,32 @@ import org.inferred.internal.source.QualifiedName;
 import org.inferred.internal.testing.Partial;
 import org.inferred.internal.testing.unit.FakeMessager;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import org.mockito.Mock;
+import org.mockito.junit.MockitoJUnitRule;
 
 import java.util.Arrays;
 
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 
 @RunWith(JUnit4.class)
 public class AnalyserTests {
 
+  @Rule public final MockitoJUnitRule mocks = new MockitoJUnitRule(this);
+
+  @Mock private Elements elements;
   private final FakeMessager messager = new FakeMessager();
   private final Types types = Partial.of(TypesImpl.class);
   private Analyser analyser;
 
   @Before
   public void setup() {
-    analyser = new Analyser(messager, types);
+    analyser = new Analyser(elements, messager, types);
   }
 
   @Test
