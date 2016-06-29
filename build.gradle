@@ -79,8 +79,10 @@ tasks.withType(Checkstyle).each { checkstyleTask ->
 
 import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
 tasks.withType(GenerateEclipseProject, { generateTask ->
-  generateTask.projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
-  generateTask.projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+  afterEvaluate {
+    generateTask.projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
+    generateTask.projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+  }
 
   def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
   def createTask = task(taskName) {
