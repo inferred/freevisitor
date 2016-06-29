@@ -2,8 +2,10 @@ plugins {
   id 'checkstyle'
   id 'eclipse'
   id 'java'
+  id 'osgi'
   id 'com.github.johnrengelman.shadow' version '1.2.3'
   id 'org.inferred.processors' version '1.2.3'
+  id 'org.standardout.bnd-platform' version '1.4.0'
 }
 
 repositories {
@@ -11,15 +13,20 @@ repositories {
 }
 
 group = 'org.inferred'
-
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
+jar.manifest {
+  name = 'FreeVisitor'
+  description = 'FreeVisitor: Automatic generation of the Visitor pattern for Java 1.8+'
+  license = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+  docURL = 'https://github.com/inferred/freevisitor/'
+}
 
 dependencies {
   compile commonsLang3
   compile guava
   compile googleJavaFormat  // TODO replace with org.inferred.internal:source
-  compile files('../inferred/source/build/libs/source.jar')
+  compile fileTree('../inferred/source/build/libs').include('source*.jar')
   processor autoService
   processor 'org.inferred:freebuilder:1.10.3'
 
@@ -34,13 +41,13 @@ dependencies {
 
 tasks.withType(Test) {
   testLogging {
-    events "passed", "skipped", "failed"
+    events 'passed', 'skipped', 'failed'
   }
 }
 
 //// Checkstyle //////////////////////////////////////////////////
 checkstyle {
-  toolVersion = "6.19"
+  toolVersion = '6.19'
   configProperties['config_loc'] = "$rootDir/config/checkstyle"
 }
 
@@ -48,7 +55,7 @@ tasks.withType(Checkstyle).each { checkstyleTask ->
   checkstyleTask.doLast {
     reports.all { report ->
       def outputFile = report.destination
-      if (outputFile.exists() && outputFile.text.contains("<error ")) {
+      if (outputFile.exists() && outputFile.text.contains('<error ')) {
         throw new GradleException("There were checkstyle warnings! See $outputFile")
       }
     }
@@ -160,13 +167,13 @@ sourceSets {
   }
 }
 
-task("j8Test", type: Test) {
+task j8Test(type: Test) {
   description 'Runs the Java 8 integration tests.'
   group = 'Verification'
   check.dependsOn it
   shouldRunAfter test
-  testClassesDir = sourceSets["j8Test"].output.classesDir
-  classpath = sourceSets["j8Test"].runtimeClasspath
+  testClassesDir = sourceSets.j8Test.output.classesDir
+  classpath = sourceSets.j8Test.runtimeClasspath
   reports {
     html {
       destination "$reportsDir/j8"
@@ -175,17 +182,17 @@ task("j8Test", type: Test) {
 }
 
 //// Eclipse /////////////////////////////////////////////////////
+import org.gradle.plugins.ide.eclipse.model.Container
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
 eclipse.classpath {
-  // Only compile src/main/java
-  file.withXml { xml ->
-    node = xml.asNode()
-    node.findAll { it.@kind == 'src' && it.@path != 'src/main/java' }.each { src ->
-        node.remove(src)
-    }
-  }
-  // Don't include test dependencies in the classpath
   plusConfigurations.clear()
-  plusConfigurations += [ configurations.compileClasspath, configurations.processor ]
+  file.beforeMerged {
+    configure([ new Container('org.eclipse.pde.core.requiredPlugins') ])
+  }
+  file.whenMerged {
+    // Only compile src/main/java
+    entries.removeAll { it instanceof SourceFolder && it.path != 'src/main/java' }
+  }
 }
 // Exclude everything in src except src/main
 eclipse.project.file.withXml {
@@ -206,6 +213,18 @@ eclipse.project.file.withXml {
   }
 }
 
+platform {
+  bundle commonsLang3
+  bundle guava
+  bundle googleJavaFormat  // TODO replace with org.inferred.internal:source
+  bundle (fileTree('../inferred/source/build/libs').include('source*.jar')) {
+    bnd {
+      symbolicName = 'org.inferred.internal.source'
+      version = '0.0.0'
+    }
+  }
+}
+
 // Set up plugin nature
 eclipse.project {
   natures 'org.eclipse.pde.PluginNature'
@@ -215,7 +234,8 @@ eclipse.project {
 
 // Copy runtime JARs to plugin/jars
 task eclipsePluginJars(type: Sync) {
-  from configurations.runtime
+  dependsOn tasks.bundles
+  from 'build/plugins'
   into 'plugin/jars'
   include '*.jar'
   tasks.eclipse.dependsOn it
@@ -240,8 +260,7 @@ task eclipseBuildProperties {
   outputs.file output
   doLast {
     output.withWriter('UTF-8') {
-      it.write "source.${project.name}.jar = src/main/java/,\\\n"
-      it.write '                         generated_src/\n'
+      it.write "source.${project.name}.jar = src/main/java/\n"
       it.write "jars.compile.order = ${project.name}.jar\n"
       it.write "output.${project.name}.jar = bin/\n"
       it.write 'bin.includes = META-INF/,\\\n'
@@ -264,47 +283,49 @@ task eclipseBuildProperties {
   }
   tasks.eclipse.dependsOn it
 }
-task cleanEclipseBuildProperties {
-  outputs.file eclipseBuildProperties.output
-  doLast {
-    eclipseBuildProperties.output.delete()
-  }
+task cleanEclipseBuildProperties(type: Delete) {
+  delete eclipseBuildProperties.output
   tasks.cleanEclipse.dependsOn it
 }
 
 // Write META-INF/MANIFEST.MF
 task eclipseJar(type: Jar) {
+  dependsOn tasks.eclipsePluginJars
   manifest {
+    def runtimeJars = """${ -> (file('plugin/jars')
+        .listFiles()
+        .collect { file('.').toPath().relativize(it.toPath()) }
+        .join(','))
+    }"""
     attributes(
       'Bundle-ManifestVersion': '2',
       'Bundle-SymbolicName': "${project.name};singleton:=true",
       'Bundle-Version': version ?: '0.0.0',
-      'Bundle-ClassPath': "${project.name}.jar",
       'Bundle-RequiredExecutionEnvironment': "JavaSE-${compileJava.sourceCompatibility}",
       'Bundle-Vendor': project.group,
+      'Bundle-ClassPath': "${project.name}.jar,${runtimeJars}",
     )
     from 'config/manifest.mf'
   }
 }
 task eclipseManifest {
+  dependsOn tasks.eclipsePluginJars
   ext.output = file('META-INF/MANIFEST.MF')
+  inputs.file file('config/manifest.mf')
   outputs.file output
   doLast {
     eclipseJar.manifest.writeTo(output)
   }
   tasks.eclipse.dependsOn it
 }
-task cleanEclipseManifest {
-  outputs.file eclipseManifest.output
-  doLast {
-    eclipseManifest.output.delete()
-  }
+task cleanEclipseManifest(type: Delete) {
+  delete eclipseManifest.output
   tasks.cleanEclipse.dependsOn it
 }
 
 import org.gradle.plugins.ide.eclipse.model.EclipseModel
-extensions.create("eclipseTest", EclipseModel)
-extensions.create("eclipseJ8Test", EclipseModel)
+extensions.create('eclipseTest', EclipseModel)
+extensions.create('eclipseJ8Test', EclipseModel)
 
 import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
 import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
@@ -314,7 +335,7 @@ task eclipseTestProject(type: GenerateEclipseProject) {
   outputFile = inputFile
   projectModel.name = project.name + '-test'
   projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
-  projectModel.natures "org.eclipse.jdt.core.javanature"
+  projectModel.natures 'org.eclipse.jdt.core.javanature'
   projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
   projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
   projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src'
@@ -327,10 +348,11 @@ task eclipseJ8TestProject(type: GenerateEclipseProject) {
   outputFile = inputFile
   projectModel.name = project.name + '-test-j8'
   projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
-  projectModel.natures "org.eclipse.jdt.core.javanature"
+  projectModel.natures 'org.eclipse.jdt.core.javanature'
   projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
   projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
   projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src/it/j8'
+  projectModel.linkedResource name: 'src/main/java/org/inferred/freevisitor/FreeVisitor.java', type:'1', location: 'PARENT-1-PROJECT_LOC/src/main/java/org/inferred/freevisitor/FreeVisitor.java'
   eclipseJ8Test.project = projectModel
   tasks.eclipse.dependsOn it
 }
@@ -426,7 +448,7 @@ void addClasspathEntry(def node, String... paths) {
 }
 
 eclipse.classpath.file.withXml { xml ->
-  addClasspathEntry(xml.asNode(), '/source')
+  //addClasspathEntry(xml.asNode(), '/source')
 }
 
 eclipseTest.classpath.file.withXml { xml ->
@@ -448,6 +470,53 @@ eclipseTest.classpath.file.withXml { xml ->
     """))
   }
 }
-eclipseJ8Test.classpath.file.withXml { xml ->
-  addClasspathEntry(xml.asNode(), '/' + project.name,  'src/main/java', 'src/test/java')
+eclipseJ8Test.classpath.file.beforeMerged {
+  def generatedSource = new SourceFolder('bin/generated/java', null)
+  generatedSource.entryAttributes.put('optional', 'true')
+  configure([
+    new SourceFolder('src/main/java', null),
+    new SourceFolder('src/test/java', null),
+    generatedSource
+  ])
+}
+eclipseJ8Test.jdt.file.withProperties {
+  it['org.eclipse.jdt.core.compiler.processAnnotations'] = 'enabled'
+}
+task eclipseJ8TestAptPrefs {
+  ext.output = file('.j8test/.settings/org.eclipse.jdt.apt.core.prefs')
+  outputs.file output
+  doLast {
+    output.parentFile.mkdirs()
+    output.delete()
+    output << """
+      eclipse.preferences.version=1
+      org.eclipse.jdt.apt.aptEnabled=true
+      org.eclipse.jdt.apt.genSrcDir=bin/generated/java
+      org.eclipse.jdt.apt.reconcileEnabled=true
+    """.replaceFirst('\n', '').stripIndent()
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseJ8TestAptPrefs(type: Delete) {
+  delete eclipseJ8TestAptPrefs.output
+  tasks.cleanEclipse.dependsOn it
+}
+
+task eclipseJ8TestFactoryPath {
+  ext.output = file('.j8test/.factorypath')
+  outputs.file output
+  doLast {
+    output.parentFile.mkdirs()
+    output.delete()
+    output << """
+      <factorypath>
+        <factorypathentry kind="PLUGIN" id="freevisitor" enabled="true" runInBatchMode="false"/>
+      </factorypath>
+    """.replaceFirst('\n', '').stripIndent()
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseJ8TestFactoryPath(type: Delete) {
+  delete eclipseJ8TestFactoryPath.output
+  tasks.cleanEclipse.dependsOn it
 }

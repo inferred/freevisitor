@@ -12,6 +12,7 @@ gen/
 .project
 .test
 plugin/
+plugins/
 build.properties
 *.jar
 META-INF/MANIFEST.MF
