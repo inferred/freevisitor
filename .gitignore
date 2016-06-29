@@ -10,7 +10,9 @@ gen/
 # Eclipse project files
 .classpath
 .project
+.checkstyle
 .test
+.j8test
 plugin/
 plugins/
 build.properties

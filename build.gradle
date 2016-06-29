@@ -48,7 +48,7 @@ tasks.withType(Test) {
 //// Checkstyle //////////////////////////////////////////////////
 checkstyle {
   toolVersion = '6.19'
-  configProperties['config_loc'] = "$rootDir/config/checkstyle"
+  configProperties['config_loc'] = "$projectDir/config/checkstyle"
 }
 
 tasks.withType(Checkstyle).each { checkstyleTask ->
@@ -520,3 +520,39 @@ task cleanEclipseJ8TestFactoryPath(type: Delete) {
   delete eclipseJ8TestFactoryPath.output
   tasks.cleanEclipse.dependsOn it
 }
+
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+tasks.withType(GenerateEclipseProject, { generateTask ->
+  def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
+  def checkstyleFile = new File(generateTask.outputFile.parentFile, '.checkstyle')
+  def createTask = task(taskName) {
+    ext.enabled = true
+    ext.outputFile = checkstyleFile
+    outputs.file outputFile
+    doLast {
+      outputFile.parentFile.mkdirs()
+      outputFile.delete()
+      if (enabled) {
+        outputFile << """
+          <?xml version="1.0" encoding="UTF-8"?>
+
+          <fileset-config file-format-version="1.2.0" simple-config="false" sync-formatter="false">
+            <local-check-config name="Gradle configuration file" location="${checkstyle.configFile}" type="external" description="">
+              <additional-data name="protect-config-file" value="true"/>
+            </local-check-config>
+            <fileset name="all" enabled="true" check-config-name="Gradle configuration file" local="true">
+              <file-match-pattern match-pattern=".java\$" include-pattern="true"/>
+            </fileset>
+            <filter name="DerivedFiles" enabled="true"/>
+          </fileset-config>
+        """.replaceFirst('\n', '').stripIndent()
+      }
+    }
+    tasks.eclipse.dependsOn it
+  }
+  def cleanTaskName = 'clean' + taskName.substring(0, 1).toUpperCase() + taskName.substring(1, taskName.length())
+  task(cleanTaskName, type: Delete) {
+    delete createTask.outputFile
+    tasks.cleanEclipse.dependsOn it
+  }
+})
