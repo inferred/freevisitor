@@ -77,10 +77,44 @@ tasks.withType(Checkstyle).each { checkstyleTask ->
   }
 }
 
-eclipse.project {
-  natures 'net.sf.eclipsecs.core.CheckstyleNature'
-  buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
-}
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+tasks.withType(GenerateEclipseProject, { generateTask ->
+  generateTask.projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
+  generateTask.projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+
+  def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
+  def createTask = task(taskName) {
+    ext.enabled = true
+    ext.outputFile = { new File(generateTask.outputFile.parentFile, '.checkstyle') }
+    outputs.file outputFile
+    doLast {
+      def output = file(outputFile)
+      output.parentFile.mkdirs()
+      output.delete()
+      if (enabled) {
+        output << """
+          <?xml version="1.0" encoding="UTF-8"?>
+
+          <fileset-config file-format-version="1.2.0" simple-config="false" sync-formatter="false">
+            <local-check-config name="Gradle configuration file" location="${checkstyle.configFile}" type="external" description="">
+              <additional-data name="protect-config-file" value="true"/>
+            </local-check-config>
+            <fileset name="all" enabled="true" check-config-name="Gradle configuration file" local="true">
+              <file-match-pattern match-pattern=".java\$" include-pattern="true"/>
+            </fileset>
+            <filter name="DerivedFiles" enabled="true"/>
+          </fileset-config>
+        """.replaceFirst('\n', '').stripIndent()
+      }
+    }
+    tasks.eclipse.dependsOn it
+  }
+  def cleanTaskName = 'clean' + taskName.substring(0, 1).toUpperCase() + taskName.substring(1, taskName.length())
+  task(cleanTaskName, type: Delete) {
+    delete createTask.outputFile
+    tasks.cleanEclipse.dependsOn it
+  }
+})
 
 //// Shadow JAR //////////////////////////////////////////////////
 jar {
@@ -351,8 +385,6 @@ task eclipseTestProject(type: GenerateEclipseProject) {
   projectModel.name = project.name + '-test'
   projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
   projectModel.natures 'org.eclipse.jdt.core.javanature'
-  projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
-  projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
   projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src'
   eclipseTest.project = projectModel
   tasks.eclipse.dependsOn it
@@ -364,8 +396,6 @@ task eclipseJ8TestProject(type: GenerateEclipseProject) {
   projectModel.name = project.name + '-test-j8'
   projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
   projectModel.natures 'org.eclipse.jdt.core.javanature'
-  projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
-  projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
   projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src/it/j8'
   projectModel.linkedResource name: 'src/main/java/org/inferred/freevisitor/FreeVisitor.java', type:'1', location: 'PARENT-1-PROJECT_LOC/src/main/java/org/inferred/freevisitor/FreeVisitor.java'
   eclipseJ8Test.project = projectModel
@@ -535,39 +565,3 @@ task cleanEclipseJ8TestFactoryPath(type: Delete) {
   delete eclipseJ8TestFactoryPath.output
   tasks.cleanEclipse.dependsOn it
 }
-
-import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
-tasks.withType(GenerateEclipseProject, { generateTask ->
-  def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
-  def checkstyleFile = new File(generateTask.outputFile.parentFile, '.checkstyle')
-  def createTask = task(taskName) {
-    ext.enabled = true
-    ext.outputFile = checkstyleFile
-    outputs.file outputFile
-    doLast {
-      outputFile.parentFile.mkdirs()
-      outputFile.delete()
-      if (enabled) {
-        outputFile << """
-          <?xml version="1.0" encoding="UTF-8"?>
-
-          <fileset-config file-format-version="1.2.0" simple-config="false" sync-formatter="false">
-            <local-check-config name="Gradle configuration file" location="${checkstyle.configFile}" type="external" description="">
-              <additional-data name="protect-config-file" value="true"/>
-            </local-check-config>
-            <fileset name="all" enabled="true" check-config-name="Gradle configuration file" local="true">
-              <file-match-pattern match-pattern=".java\$" include-pattern="true"/>
-            </fileset>
-            <filter name="DerivedFiles" enabled="true"/>
-          </fileset-config>
-        """.replaceFirst('\n', '').stripIndent()
-      }
-    }
-    tasks.eclipse.dependsOn it
-  }
-  def cleanTaskName = 'clean' + taskName.substring(0, 1).toUpperCase() + taskName.substring(1, taskName.length())
-  task(cleanTaskName, type: Delete) {
-    delete createTask.outputFile
-    tasks.cleanEclipse.dependsOn it
-  }
-})
