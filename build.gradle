@@ -5,7 +5,6 @@ plugins {
   id 'osgi'
   id 'com.github.johnrengelman.shadow' version '1.2.3'
   id 'org.inferred.processors' version '1.2.3'
-  id 'org.standardout.bnd-platform' version '1.4.0'
 }
 
 repositories {
@@ -264,18 +263,6 @@ eclipse.project.file.withXml {
   }
 }
 
-platform {
-  bundle commonsLang3
-  bundle guava
-  bundle googleJavaFormat  // TODO replace with org.inferred.internal:source
-  bundle (fileTree('../inferred/source/build/libs').include('source*.jar')) {
-    bnd {
-      symbolicName = 'org.inferred.internal.source'
-      version = '0.0.0'
-    }
-  }
-}
-
 // Set up plugin nature
 eclipse.project {
   natures 'org.eclipse.pde.PluginNature'
@@ -285,8 +272,7 @@ eclipse.project {
 
 // Copy runtime JARs to plugin/jars
 task eclipsePluginJars(type: Sync) {
-  dependsOn tasks.bundles
-  from 'build/plugins'
+  from configurations.runtime
   into 'plugin/jars'
   include '*.jar'
   tasks.eclipse.dependsOn it
