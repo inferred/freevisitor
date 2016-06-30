@@ -45,6 +45,18 @@ public class ProcessorBehavioralTests {
   @Rule public final ExpectedException thrown = none();
 
   @Test
+  public void compilesWithoutWarnings() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .compiles()
+        .withNoWarnings();
+  }
+
+  @Test
   public void basicDispatch() {
     new BehaviorTester()
         .with(new Processor())

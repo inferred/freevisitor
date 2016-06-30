@@ -265,13 +265,13 @@ class GeneratedVisitor extends Excerpt {
         .addLine("private enum SwitchingBuilderImpl implements SwitchingBuilder {")
         .addLine("  INSTANCE;")
         .addLine("  @Override")
-        .addLine("  public SwitchingVisitor on(%s<? super %s> visitor) {",
-            Consumer.class, firstType)
+        .addLine("  public %s on(%s<? super %s> visitor) {",
+            strictBuilderType(code), Consumer.class, firstType)
         .addLine("    return new SwitchingVisitor(visitor);")
         .addLine("  }")
         .addLine("  @Override")
-        .addLine("  public <T> StrictBuilder on(%s<? super %s, ? extends T> visitor) {",
-            Function.class, firstType)
+        .addLine("  public <T> %s on(", strictReturningBuilderType(code))
+        .addLine("      %s<? super %s, ? extends T> visitor) {", Function.class, firstType)
         .addLine("    return new SwitchingReturningVisitor<T>(visitor);")
         .addLine("  }")
         .addLine("}");
@@ -356,8 +356,7 @@ class GeneratedVisitor extends Excerpt {
   }
 
   private void addBuiltVisitorType(SourceBuilder code) {
-    code.addLine("@SuppressWarnings({\"rawtypes\", \"unchecked\"})")
-        .addLine("private static class BuiltVisitor implements %s {", visitor.getVisitorType());
+    code.addLine("private static class BuiltVisitor implements %s {", visitor.getVisitorType());
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
       code.addLine("  private final %s<? super %s> %sVisitor;",
           Consumer.class, subtype, lowercased(subtype));
@@ -389,8 +388,7 @@ class GeneratedVisitor extends Excerpt {
   }
 
   private void addBuiltReturningVisitorType(SourceBuilder code) {
-    code.addLine("@SuppressWarnings({\"rawtypes\", \"unchecked\"})")
-        .addLine("private static class BuiltVisitorReturning<T> implements %s.Returning<T> {",
+    code.addLine("private static class BuiltVisitorReturning<T> implements %s.Returning<T> {",
             visitor.getVisitorType());
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
       code.addLine("  private final %s<? super %s, ? extends T> %sVisitor;",
