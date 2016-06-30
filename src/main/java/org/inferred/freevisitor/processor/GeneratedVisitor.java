@@ -34,6 +34,9 @@ class GeneratedVisitor extends Excerpt {
         .addLine(" * dynamic dispatch.")
         .addLine(" *")
         .addLine(" * @see %s.Returning<T>", visitor.getVisitorType())
+        .addLine(" * @see %s.Builder", visitor.getVisitorType())
+        .addLine(" * @see %s.Builder.Returning<T>", visitor.getVisitorType())
+        .addLine(" * @see %s.Builders#switching()", visitor.getVisitorType())
         .addLine(" */")
         .addLine("@%s(\"%s\")", Generated.class, Processor.class.getName())
         .addLine("interface %s {", visitor.getGeneratedType().getSimpleName());
@@ -88,21 +91,43 @@ class GeneratedVisitor extends Excerpt {
   }
 
   private void addBuilderType(SourceBuilder code) {
-    code.addLine("public class Builder {");
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Builder of {@link %s} instances.", visitor.getVisitorType())
+        .addLine(" */")
+        .addLine("public class Builder {");
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
       code.addLine("  private %s<? super %s> %sVisitor;",
           Consumer.class, subtype, lowercased(subtype));
     }
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
-      code.addLine("  public Builder on%s(%s<? super %s> visitor) {",
+      code.addLine("")
+          .addLine("/**")
+          .addLine(" * Sets the visitor for {@link %s} instances.", subtype)
+          .addLine(" *")
+          .addLine(" * @return this builder")
+          .addLine(" */")
+          .addLine("  public Builder on%s(%s<? super %s> visitor) {",
               subtype.getSimpleName(), Consumer.class, subtype)
           .addLine("    %sVisitor = visitor;", lowercased(subtype))
           .addLine("    return this;")
           .addLine("  }");
     }
-    code.addLine("  public %s build() {", visitor.getVisitorType())
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Returns a new {@link %s}.", visitor.getVisitorType())
+        .addLine(" *")
+        .addLine(" * @throws IllegalStateException if any types have not had visitors specified")
+        .addLine(" */")
+        .addLine("  public %s build() {", visitor.getVisitorType())
         .addLine("    return new Builders.BuiltVisitor(this);")
         .addLine("  }")
+        .addLine("")
+        .addLine("/**")
+        .addLine(" * Returns a new {@link %s}. Any types that have not had a visitor specified",
+            visitor.getVisitorType())
+        .addLine(" * will be passed to {@code fallback}.")
+        .addLine(" */")
         .addLine("  public %s otherwise(%s<? super %s> fallback) {",
             visitor.getVisitorType(), Consumer.class, visitor.getVisitedType())
         .addLine("    return new Builders.BuiltVisitor(this, fallback);")
@@ -112,21 +137,45 @@ class GeneratedVisitor extends Excerpt {
   }
 
   private void addReturningBuilderType(SourceBuilder code) {
-    code.addLine("public static class Returning<T> {");
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Builder of {@link %s.Returning} instances.", visitor.getVisitorType())
+        .addLine(" *")
+        .addLine(" * @param <T> type returned from visit methods")
+        .addLine(" */")
+        .addLine("public static class Returning<T> {");
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
       code.addLine("  private %s<? super %s, ? extends T> %sVisitor;",
           Function.class, subtype, lowercased(subtype));
     }
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
-      code.addLine("  public Builder.Returning<T> on%s(%s<? super %s, ? extends T> visitor) {",
+      code.addLine("")
+          .addLine("/**")
+          .addLine(" * Sets the visitor for {@link %s} instances.", subtype)
+          .addLine(" *")
+          .addLine(" * @return this builder")
+          .addLine(" */")
+          .addLine("  public Builder.Returning<T> on%s(%s<? super %s, ? extends T> visitor) {",
               subtype.getSimpleName(), Function.class, subtype)
           .addLine("    %sVisitor = visitor;", lowercased(subtype))
           .addLine("    return this;")
           .addLine("  }");
     }
-    code.addLine("  public %s.Returning<T> build() {", visitor.getVisitorType())
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Returns a new {@link %s}.", visitor.getVisitorType())
+        .addLine(" *")
+        .addLine(" * @throws IllegalStateException if any types have not had visitors specified")
+        .addLine(" */")
+        .addLine("  public %s.Returning<T> build() {", visitor.getVisitorType())
         .addLine("    return new Builders.BuiltVisitorReturning<>(this);")
         .addLine("  }")
+        .addLine("")
+        .addLine("/**")
+        .addLine(" * Returns a new {@link %s}. Any types that have not had a visitor specified",
+            visitor.getVisitorType())
+        .addLine(" * will be passed to {@code fallback}.")
+        .addLine(" */")
         .addLine("  public %s.Returning<T> otherwise(%s<? super %s, ? extends T> fallback) {",
             visitor.getVisitorType(), Function.class, visitor.getVisitedType())
         .addLine("    return new Builders.BuiltVisitorReturning<>(this, fallback);")
@@ -157,7 +206,13 @@ class GeneratedVisitor extends Excerpt {
 
   private void addSwitchingBuilderType(SourceBuilder code) {
     QualifiedName firstType = visitor.getVisitedSubtypes().get(0);
-    code.addLine("public interface SwitchingBuilder {")
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Transient builder type.")
+        .addLine(" *")
+        .addLine(" * @see %s.Builders#switching", visitor.getVisitorType())
+        .addLine(" */")
+        .addLine("public interface SwitchingBuilder {")
         .addLine("  %s on(%s<? super %s> visitor);",
             strictBuilderType(code), Consumer.class, firstType)
         .addLine("  <T> %s on(%s<? super %s, ? extends T> visitor);",
@@ -187,14 +242,46 @@ class GeneratedVisitor extends Excerpt {
     return strictBuilderType.toString();
   }
 
-  private static void addStrictBuilderType(SourceBuilder code) {
-    code.addLine("public interface StrictBuilder<T, R> {")
+  private void addStrictBuilderType(SourceBuilder code) {
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Transient builder type.")
+        .addLine(" *")
+        .addLine(" * @see %s.Builders#switching", visitor.getVisitorType())
+        .addLine(" */")
+        .addLine("public interface StrictBuilder<T, R> {")
         .addLine("  R on(T visitor);")
         .addLine("}");
   }
 
-  private static void addSwitchingMethod(SourceBuilder code) {
-    code.addLine("public static SwitchingBuilder switching() {")
+  private void addSwitchingMethod(SourceBuilder code) {
+    code.addLine("")
+        .addLine("/**")
+        .addLine(" * Fluently builds an instance of {@link %s}", visitor.getVisitorType())
+        .addLine(" * or {@link %s.Returning}.", visitor.getVisitorType())
+        .addLine(" *")
+        .add(" * <pre> %1$s visitor = %1$s.Builders.switching()", visitor.getVisitorType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.add("%n *     .on((%s %s) -> System.out.println(\"%s instance\"))",
+              subtype, lowercased(subtype), subtype.getSimpleName());
+    }
+    code.add(";%n")
+        .add(" * %1$s.Returning&lt;String&gt; visitor = %1$s.Builders.switching()",
+            visitor.getVisitorType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.add("%n *     .on((%s %s) -> \"%s instance\")",
+              subtype, lowercased(subtype), subtype.getSimpleName());
+    }
+    code.add(";</pre>%n")
+        .addLine(" *")
+        .addLine(" * <p>Type visitors must be provided in fixed order, and no type may be")
+        .addLine(" * missed, or the compiler will issue an error. For a more flexible")
+        .addLine(" * implementation of the builder pattern, use {@link %s.Builder} or",
+            visitor.getVisitorType())
+        .addLine(" * {@link %s.Builder.Returning}.",
+            visitor.getVisitorType())
+        .addLine(" */")
+        .addLine("public static SwitchingBuilder switching() {")
         .addLine("  return SwitchingBuilderImpl.INSTANCE;")
         .addLine("}");
   }
