@@ -4,6 +4,7 @@ plugins {
   id 'java'
   id 'osgi'
   id 'com.github.johnrengelman.shadow' version '1.2.3'
+  id 'com.palantir.git-version' version '0.2.0'
   id 'org.inferred.processors' version '1.2.3'
 }
 
@@ -11,9 +12,10 @@ repositories {
   mavenCentral()
 }
 
-group = 'org.inferred'
 sourceCompatibility = 1.8
-targetCompatibility = 1.8
+
+group = 'org.inferred'
+version = (System.env.TRAVIS_TAG ?: gitVersion()).replaceAll('^v','')
 jar.manifest {
   name = 'FreeVisitor'
   description = 'FreeVisitor: Automatic generation of the Visitor pattern for Java 1.8+'
