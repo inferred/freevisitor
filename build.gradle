@@ -5,7 +5,7 @@ plugins {
   id 'osgi'
   id 'com.github.johnrengelman.shadow' version '1.2.3'
   id 'com.palantir.git-version' version '0.2.0'
-  id 'org.inferred.processors' version '1.2.3'
+  id 'org.inferred.processors' version '1.2.4-rc2'
 }
 
 repositories {
@@ -234,6 +234,7 @@ task j8Test(type: Test) {
 }
 
 //// Eclipse /////////////////////////////////////////////////////
+eclipse.processors.outputDir = 'generated_src'
 import org.gradle.plugins.ide.eclipse.model.Container
 import org.gradle.plugins.ide.eclipse.model.SourceFolder
 eclipse.classpath {

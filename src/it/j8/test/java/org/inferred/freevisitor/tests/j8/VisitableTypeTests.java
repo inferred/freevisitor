@@ -49,4 +49,30 @@ public class VisitableTypeTests {
     visitor.visit(typeB);
     assertEquals("B", visitor.visited);
   }
+
+  @Test
+  public void returningDispatch() {
+    class FakeVisitor implements VisitableType.Visitor.Returning<String> {
+
+      @Override
+      public String visit(TypeA typeA) {
+        return "A";
+      }
+
+      @Override
+      public String visit(TypeB typeB) {
+        return "B";
+      }
+
+      @Override
+      public String visit(TypeC typeC) {
+        return "C";
+      }
+    }
+
+    FakeVisitor visitor = new FakeVisitor();
+    assertEquals("A", visitor.visit(new TypeA()));
+    assertEquals("C", visitor.visit(new TypeC()));
+    assertEquals("B", visitor.visit(new TypeB()));
+  }
 }
