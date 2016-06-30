@@ -6,6 +6,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 import javax.lang.model.element.TypeElement;
@@ -40,7 +41,7 @@ public class EclipseProjects {
         })
         .map(EclipseProjects::getQualifiedName)
         .map(elements::getTypeElement)
-        .filter(typeElement -> typeElement != null);
+        .filter(Objects::nonNull);
   }
 
   private static String getQualifiedName(Object compilationUnit) {

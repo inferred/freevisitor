@@ -42,6 +42,7 @@ class GeneratedVisitor extends Excerpt {
     }
     addVisitMethod(code);
     addReturningType(code);
+    addBuilderType(code);
     addBuildersType(code);
     code.addLine("}");
   }
@@ -86,12 +87,60 @@ class GeneratedVisitor extends Excerpt {
     code.addLine("}");
   }
 
+  private void addBuilderType(SourceBuilder code) {
+    code.addLine("public class Builder {");
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  private %s<? super %s> %sVisitor;",
+          Consumer.class, subtype, lowercased(subtype));
+    }
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  public Builder on%s(%s<? super %s> visitor) {",
+              subtype.getSimpleName(), Consumer.class, subtype)
+          .addLine("    %sVisitor = visitor;", lowercased(subtype))
+          .addLine("    return this;")
+          .addLine("  }");
+    }
+    code.addLine("  public %s build() {", visitor.getVisitorType())
+        .addLine("    return new Builders.BuiltVisitor(this);")
+        .addLine("  }")
+        .addLine("  public %s otherwise(%s<? super %s> fallback) {",
+            visitor.getVisitorType(), Consumer.class, visitor.getVisitedType())
+        .addLine("    return new Builders.BuiltVisitor(this, fallback);")
+        .addLine("  }");
+    addReturningBuilderType(code);
+    code.addLine("}");
+  }
+
+  private void addReturningBuilderType(SourceBuilder code) {
+    code.addLine("public static class Returning<T> {");
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  private %s<? super %s, ? extends T> %sVisitor;",
+          Function.class, subtype, lowercased(subtype));
+    }
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  public Builder.Returning<T> on%s(%s<? super %s, ? extends T> visitor) {",
+              subtype.getSimpleName(), Function.class, subtype)
+          .addLine("    %sVisitor = visitor;", lowercased(subtype))
+          .addLine("    return this;")
+          .addLine("  }");
+    }
+    code.addLine("  public %s.Returning<T> build() {", visitor.getVisitorType())
+        .addLine("    return new Builders.BuiltVisitorReturning<>(this);")
+        .addLine("  }")
+        .addLine("  public %s.Returning<T> otherwise(%s<? super %s, ? extends T> fallback) {",
+            visitor.getVisitorType(), Function.class, visitor.getVisitedType())
+        .addLine("    return new Builders.BuiltVisitorReturning<>(this, fallback);")
+        .addLine("  }")
+        .addLine("}");
+  }
+
   private void addBuildersType(SourceBuilder code) {
     code.addLine("public final class Builders {");
     if (!visitor.getVisitedSubtypes().isEmpty()) {
       addSwitchingBuilderType(code);
       addStrictBuilderType(code);
       addSwitchingMethod(code);
+      addBuilderMethod(code);
     }
     addVisitMethodConstant(code);
     addReturningAdapterType(code);
@@ -100,6 +149,8 @@ class GeneratedVisitor extends Excerpt {
       addSwitchingVisitorType(code);
       addSwitchingReturningVisitorType(code);
     }
+    addBuiltVisitorType(code);
+    addBuiltReturningVisitorType(code);
     code.addLine("  private Builders() {}")
         .addLine("}");
   }
@@ -145,6 +196,12 @@ class GeneratedVisitor extends Excerpt {
   private static void addSwitchingMethod(SourceBuilder code) {
     code.addLine("public static SwitchingBuilder switching() {")
         .addLine("  return SwitchingBuilderImpl.INSTANCE;")
+        .addLine("}");
+  }
+
+  private static void addBuilderMethod(SourceBuilder code) {
+    code.addLine("public static Builder builder() {")
+        .addLine("  return new Builder();")
         .addLine("}");
   }
 
@@ -194,7 +251,8 @@ class GeneratedVisitor extends Excerpt {
         .addLine("    this.delegate = delegate;")
         .addLine("  }");
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
-      code.addLine("  public void visit(%s %s) {", subtype, lowercased(subtype))
+      code.addLine("  @Override")
+          .addLine("  public void visit(%s %s) {", subtype, lowercased(subtype))
           .addLine("    result = delegate.visit(%s);", lowercased(subtype))
           .addLine("  }");
     }
@@ -206,10 +264,12 @@ class GeneratedVisitor extends Excerpt {
     code.addLine("@SuppressWarnings(\"unchecked\")")
         .addLine("private enum SwitchingBuilderImpl implements SwitchingBuilder {")
         .addLine("  INSTANCE;")
+        .addLine("  @Override")
         .addLine("  public SwitchingVisitor on(%s<? super %s> visitor) {",
             Consumer.class, firstType)
         .addLine("    return new SwitchingVisitor(visitor);")
         .addLine("  }")
+        .addLine("  @Override")
         .addLine("  public <T> StrictBuilder on(%s<? super %s, ? extends T> visitor) {",
             Function.class, firstType)
         .addLine("    return new SwitchingReturningVisitor<T>(visitor);")
@@ -232,6 +292,7 @@ class GeneratedVisitor extends Excerpt {
             Consumer.class, firstType)
         .addLine("    %sVisitor = visitor;", lowercased(firstType))
         .addLine("  }")
+        .addLine("  @Override")
         .addLine("  public Object on(Object visitor) {")
         .addLine("    %s.requireNonNull(visitor);", Objects.class);
     for (QualifiedName subtype : skip(visitor.getVisitedSubtypes(), 1)) {
@@ -247,7 +308,8 @@ class GeneratedVisitor extends Excerpt {
         .addLine("    return this;")
         .addLine("  }");
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
-      code.addLine("  public void visit(%s %s) {", subtype, lowercased(subtype))
+      code.addLine("  @Override")
+          .addLine("  public void visit(%s %s) {", subtype, lowercased(subtype))
           .addLine("    %1$sVisitor.accept(%1$s);", lowercased(subtype))
           .addLine("  }");
     }
@@ -269,6 +331,7 @@ class GeneratedVisitor extends Excerpt {
             Function.class, firstType)
         .addLine("    %sVisitor = visitor;", lowercased(firstType))
         .addLine("  }")
+        .addLine("  @Override")
         .addLine("  public Object on(Object visitor) {")
         .addLine("    %s.requireNonNull(visitor);", Objects.class);
     for (QualifiedName subtype : skip(visitor.getVisitedSubtypes(), 1)) {
@@ -284,7 +347,76 @@ class GeneratedVisitor extends Excerpt {
         .addLine("    return this;")
         .addLine("  }");
     for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
-      code.addLine("  public T visit(%s %s) {", subtype, lowercased(subtype))
+      code.addLine("  @Override")
+          .addLine("  public T visit(%s %s) {", subtype, lowercased(subtype))
+          .addLine("    return %1$sVisitor.apply(%1$s);", lowercased(subtype))
+          .addLine("  }");
+    }
+    code.addLine("}");
+  }
+
+  private void addBuiltVisitorType(SourceBuilder code) {
+    code.addLine("@SuppressWarnings({\"rawtypes\", \"unchecked\"})")
+        .addLine("private static class BuiltVisitor implements %s {", visitor.getVisitorType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  private final %s<? super %s> %sVisitor;",
+          Consumer.class, subtype, lowercased(subtype));
+    }
+    code.addLine("  private BuiltVisitor(Builder builder) {",
+        Consumer.class, visitor.getVisitedType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  if (builder.%sVisitor == null) {", lowercased(subtype))
+          .addLine("    throw new IllegalStateException(\"no visitor provided for %s\");",
+              subtype.getSimpleName())
+          .addLine("  }")
+          .addLine("  %1$sVisitor = builder.%1$sVisitor;", lowercased(subtype));
+    }
+    code.addLine("  }")
+        .addLine("  private BuiltVisitor(Builder builder, %s<? super %s> fallback) {",
+            Consumer.class, visitor.getVisitedType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  %1$sVisitor = builder.%1$sVisitor == null ? fallback : builder.%1$sVisitor;",
+          lowercased(subtype));
+    }
+    code.addLine("  }");
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  @Override")
+          .addLine("  public void visit(%s %s) {", subtype, lowercased(subtype))
+          .addLine("    %1$sVisitor.accept(%1$s);", lowercased(subtype))
+          .addLine("  }");
+    }
+    code.addLine("}");
+  }
+
+  private void addBuiltReturningVisitorType(SourceBuilder code) {
+    code.addLine("@SuppressWarnings({\"rawtypes\", \"unchecked\"})")
+        .addLine("private static class BuiltVisitorReturning<T> implements %s.Returning<T> {",
+            visitor.getVisitorType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  private final %s<? super %s, ? extends T> %sVisitor;",
+          Function.class, subtype, lowercased(subtype));
+    }
+    code.addLine("  private BuiltVisitorReturning(Builder.Returning<T> builder) {",
+        Consumer.class, visitor.getVisitedType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  if (builder.%sVisitor == null) {", lowercased(subtype))
+          .addLine("    throw new IllegalStateException(\"no visitor provided for %s\");",
+              subtype.getSimpleName())
+          .addLine("  }")
+          .addLine("  %1$sVisitor = builder.%1$sVisitor;", lowercased(subtype));
+    }
+    code.addLine("  }")
+        .addLine("  private BuiltVisitorReturning(")
+        .addLine("      Builder.Returning<T> builder, %s<? super %s, ? extends T> fallback) {",
+            Function.class, visitor.getVisitedType());
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  %1$sVisitor = builder.%1$sVisitor == null ? fallback : builder.%1$sVisitor;",
+          lowercased(subtype));
+    }
+    code.addLine("  }");
+    for (QualifiedName subtype : visitor.getVisitedSubtypes()) {
+      code.addLine("  @Override")
+          .addLine("  public T visit(%s %s) {", subtype, lowercased(subtype))
           .addLine("    return %1$sVisitor.apply(%1$s);", lowercased(subtype))
           .addLine("  }");
     }

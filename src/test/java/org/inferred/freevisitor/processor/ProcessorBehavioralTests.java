@@ -1,10 +1,14 @@
 package org.inferred.freevisitor.processor;
 
+import static org.junit.rules.ExpectedException.none;
+
 import org.inferred.freevisitor.FreeVisitor;
 import org.inferred.internal.testing.integration.BehaviorTester;
 import org.inferred.internal.testing.integration.SourceBuilder;
 import org.inferred.internal.testing.integration.TestBuilder;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
@@ -15,18 +19,6 @@ import javax.tools.JavaFileObject;
 @RunWith(JUnit4.class)
 public class ProcessorBehavioralTests {
 
-  private static final JavaFileObject TYPE_C = new SourceBuilder()
-      .addLine("package org.example;")
-      .addLine("public class TypeC implements VisitableType {}")
-      .build();
-  private static final JavaFileObject TYPE_B = new SourceBuilder()
-      .addLine("package org.example;")
-      .addLine("public class TypeB implements VisitableType {}")
-      .build();
-  private static final JavaFileObject TYPE_A = new SourceBuilder()
-      .addLine("package org.example;")
-      .addLine("public class TypeA implements VisitableType {}")
-      .build();
   private static final JavaFileObject VISITABLE_TYPE = new SourceBuilder()
       .addLine("package org.example;")
       .addLine("public interface VisitableType {")
@@ -37,6 +29,20 @@ public class ProcessorBehavioralTests {
       .addLine("  }")
       .addLine("}")
       .build();
+  private static final JavaFileObject TYPE_A = new SourceBuilder()
+      .addLine("package org.example;")
+      .addLine("public class TypeA implements VisitableType {}")
+      .build();
+  private static final JavaFileObject TYPE_B = new SourceBuilder()
+      .addLine("package org.example;")
+      .addLine("public class TypeB implements VisitableType {}")
+      .build();
+  private static final JavaFileObject TYPE_C = new SourceBuilder()
+      .addLine("package org.example;")
+      .addLine("public class TypeC implements VisitableType {}")
+      .build();
+
+  @Rule public final ExpectedException thrown = none();
 
   @Test
   public void basicDispatch() {
@@ -226,6 +232,173 @@ public class ProcessorBehavioralTests {
             .addLine("assertEquals(5L, visitor.visit(c));")
             .addLine("assertEquals(3, visitor.visit(a));")
             .addLine("assertEquals(2.1, visitor.visit(b));")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void buildDispatchStrict() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("%1$s<String> visited = new %1$s<>();", AtomicReference.class)
+            .addLine("VisitableType.Visitor visitor = new VisitableType.Visitor.Builder()")
+            .addLine("    .onTypeA(typeA -> visited.set(\"A\"))")
+            .addLine("    .onTypeB(typeB -> visited.set(\"B\"))")
+            .addLine("    .onTypeC(typeC -> visited.set(\"C\"))")
+            .addLine("    .build();")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void builderFailsWithIllegalStateExceptionIfNotAllTypesGiven() {
+    thrown.expect(IllegalStateException.class);
+    thrown.expectMessage("no visitor provided for TypeC");
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("%1$s<String> visited = new %1$s<>();", AtomicReference.class)
+            .addLine("VisitableType.Visitor visitor = new VisitableType.Visitor.Builder()")
+            .addLine("    .onTypeA(typeA -> visited.set(\"A\"))")
+            .addLine("    .onTypeB(typeB -> visited.set(\"B\"))")
+            .addLine("    .build();")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void buildDispatchWithFallback() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("%1$s<String> visited = new %1$s<>();", AtomicReference.class)
+            .addLine("VisitableType.Visitor visitor = new VisitableType.Visitor.Builder()")
+            .addLine("    .onTypeA(typeA -> visited.set(\"A\"))")
+            .addLine("    .onTypeB(typeB -> visited.set(\"B\"))")
+            .addLine("    .otherwise(other -> visited.set(\"C\"));")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void buildReturnsStrict() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("VisitableType.Visitor.Returning<String> visitor =")
+            .addLine("    new VisitableType.Visitor.Builder.Returning<String>()")
+            .addLine("        .onTypeA(typeA -> \"A\")")
+            .addLine("        .onTypeB(typeB -> \"B\")")
+            .addLine("        .onTypeC(typeC -> \"C\")")
+            .addLine("        .build();")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void returningBuilderFailsWithIllegalStateExceptionIfNotAllTypesGiven() {
+    thrown.expect(IllegalStateException.class);
+    thrown.expectMessage("no visitor provided for TypeC");
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("new VisitableType.Visitor.Builder.Returning<String>()")
+            .addLine("    .onTypeA(typeA -> \"A\")")
+            .addLine("    .onTypeB(typeB -> \"B\")")
+            .addLine("    .build();")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void buildReturnsWithFallback() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("VisitableType.Visitor.Returning<String> visitor =")
+            .addLine("    new VisitableType.Visitor.Builder.Returning<String>()")
+            .addLine("        .onTypeA(typeA -> \"A\")")
+            .addLine("        .onTypeB(typeB -> \"B\")")
+            .addLine("        .otherwise(other -> \"C\");")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
             .build())
         .runTest();
   }
