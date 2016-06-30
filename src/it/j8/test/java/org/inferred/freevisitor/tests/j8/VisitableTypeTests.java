@@ -3,6 +3,8 @@ package org.inferred.freevisitor.tests.j8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -71,6 +73,33 @@ public class VisitableTypeTests {
     }
 
     FakeVisitor visitor = new FakeVisitor();
+    assertEquals("A", visitor.visit(new TypeA()));
+    assertEquals("C", visitor.visit(new TypeC()));
+    assertEquals("B", visitor.visit(new TypeB()));
+  }
+
+  @Test
+  public void fluentDispatch() {
+    AtomicReference<String> result = new AtomicReference<>();
+    VisitableType.Visitor visitor = VisitableType.Visitor.Builders.switching()
+        .on((TypeA typeA) -> result.set("A"))
+        .on((TypeB typeB) -> result.set("B"))
+        .on((TypeC typeC) -> result.set("C"));
+    visitor.visit(new TypeA());
+    assertEquals("A", result.get());
+    visitor.visit(new TypeC());
+    assertEquals("C", result.get());
+    visitor.visit(new TypeB());
+    assertEquals("B", result.get());
+  }
+
+  @Test
+  public void fluentReturns() {
+    VisitableType.Visitor.Returning<String> visitor = VisitableType.Visitor.Builders
+        .switching()
+        .on((TypeA typeA) -> "A")
+        .on((TypeB typeB) -> "B")
+        .on((TypeC typeC) -> "C");
     assertEquals("A", visitor.visit(new TypeA()));
     assertEquals("C", visitor.visit(new TypeC()));
     assertEquals("B", visitor.visit(new TypeB()));

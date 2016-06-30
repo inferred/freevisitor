@@ -8,6 +8,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
+import java.util.concurrent.atomic.AtomicReference;
+
 import javax.tools.JavaFileObject;
 
 @RunWith(JUnit4.class)
@@ -106,6 +108,124 @@ public class ProcessorBehavioralTests {
             .addLine("assertEquals(\"C\", visitor.visit(c));")
             .addLine("assertEquals(\"A\", visitor.visit(a));")
             .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void fluentDispatch() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addLine("%1$s<String> visited = new %1$s<>();", AtomicReference.class)
+            .addLine("VisitableType.Visitor visitor = VisitableType.Visitor.Builders.switching()")
+            .addLine("    .on((TypeA typeA) -> visited.set(\"A\"))")
+            .addLine("    .on((TypeB typeB) -> visited.set(\"B\"))")
+            .addLine("    .on((TypeC typeC) -> visited.set(\"C\"));")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .addLine("c.accept(visitor);")
+            .addLine("assertEquals(\"C\", visited.get());")
+            .addLine("a.accept(visitor);")
+            .addLine("assertEquals(\"A\", visited.get());")
+            .addLine("b.accept(visitor);")
+            .addLine("assertEquals(\"B\", visited.get());")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void fluentReturns() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addImport("org.example.VisitableType.Visitor")
+            .addLine("Visitor.Returning<String> visitor = Visitor.Builders.switching()")
+            .addLine("    .on((TypeA typeA) -> \"A\")")
+            .addLine("    .on((TypeB typeB) -> \"B\")")
+            .addLine("    .on((TypeC typeC) -> \"C\");")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .addLine("assertEquals(\"C\", visitor.visit(c));")
+            .addLine("assertEquals(\"A\", visitor.visit(a));")
+            .addLine("assertEquals(\"B\", visitor.visit(b));")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void fluentReturnTypeCanBeExplicitlySpecified() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addImport("org.example.VisitableType.Visitor")
+            .addLine("Visitor.Returning<Number> visitor = Visitor.Builders.switching()")
+            .addLine("    .<Number>on((TypeA typeA) -> 3)")
+            .addLine("    .on((TypeB typeB) -> 2.1)")
+            .addLine("    .on((TypeC typeC) -> 5L);")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("assertEquals(3, visitor.visit(a));")
+            .addLine("assertEquals(5L, visitor.visit(c));")
+            .addLine("assertEquals(2.1, visitor.visit(b));")
+            .addLine("assertEquals(5L, visitor.visit(c));")
+            .addLine("assertEquals(3, visitor.visit(a));")
+            .addLine("assertEquals(2.1, visitor.visit(b));")
+            .build())
+        .runTest();
+  }
+
+  @Test
+  public void fluentReturnTypeCanBeCast() {
+    new BehaviorTester()
+        .with(new Processor())
+        .with(VISITABLE_TYPE)
+        .with(TYPE_A)
+        .with(TYPE_B)
+        .with(TYPE_C)
+        .with(new TestBuilder()
+            .addPackageImport("org.example")
+            .addImport("org.example.VisitableType.Visitor")
+            .addLine("Visitor.Returning<Number> visitor = Visitor.Builders.switching()")
+            .addLine("    .on((TypeA typeA) -> (Number) 3)")
+            .addLine("    .on((TypeB typeB) -> 2.1)")
+            .addLine("    .on((TypeC typeC) -> 5L);")
+            .addLine("VisitableType a = new TypeA();")
+            .addLine("VisitableType b = new TypeB();")
+            .addLine("VisitableType c = new TypeC();")
+            .addLine("assertEquals(3, visitor.visit(a));")
+            .addLine("assertEquals(5L, visitor.visit(c));")
+            .addLine("assertEquals(2.1, visitor.visit(b));")
+            .addLine("assertEquals(5L, visitor.visit(c));")
+            .addLine("assertEquals(3, visitor.visit(a));")
+            .addLine("assertEquals(2.1, visitor.visit(b));")
             .build())
         .runTest();
   }
