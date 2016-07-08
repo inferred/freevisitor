@@ -26,31 +26,17 @@ jar.manifest {
 dependencies {
   compile commonsLang3
   compile guava
-
-  // TODO replace with org.inferred.internal:source
-  compile(googleJavaFormat) {
-    // Exclude transitive dependencies that don't affect the formatter
-    exclude module: 'jcommander'
-    exclude module: 'org.eclipse.equinox.app'
-    exclude module: 'org.eclipse.core.filesystem'
-    exclude module: 'org.eclipse.text'
-    exclude module: 'org.eclipse.equinox.registry'
-  }
-  compile fileTree('../inferred/source/build/libs').include('source.jar')
+  compile source
 
   processor autoService
   processor 'org.inferred:freebuilder:1.10.3'
-
-  // TODO replace with org.inferred.internal:source-testing
-  testCompile javassist
-  testCompile truth
-  testCompile fileTree('../inferred/source/build/libs').include('source-testing.jar')
 
   testCompile guavaTestlib
   testCompile gwtUser
   testCompile hamcrest
   testCompile junit
   testCompile mockito
+  testCompile sourceTesting
   testCompile 'org.assertj:assertj-core:3.4.1'
   testCompile 'org.assertj:assertj-guava:3.0.0'
 }
@@ -488,7 +474,7 @@ eclipse.classpath.file.withXml { xml ->
 }
 
 eclipseTest.classpath.file.withXml { xml ->
-  addClasspathEntry(xml.asNode(), '/' + project.name, '/source', '/source-testing', 'src/test/java')
+  addClasspathEntry(xml.asNode(), '/' + project.name, 'src/test/java')
   // Exclude everything in src except src/main
   if (asNode().find { it.name() == 'filteredResources' } == null) {
     asNode().append(new XmlParser().parseText("""
