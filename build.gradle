@@ -26,7 +26,14 @@ jar.manifest {
 dependencies {
   compile commonsLang3
   compile guava
-  compile source
+  compile(source) {
+    // Exclude transitive dependencies that don't affect the formatter
+    exclude module: 'jcommander'
+    exclude module: 'org.eclipse.equinox.app'
+    exclude module: 'org.eclipse.core.filesystem'
+    exclude module: 'org.eclipse.text'
+    exclude module: 'org.eclipse.equinox.registry'
+  }
 
   processor autoService
   processor 'org.inferred:freebuilder:1.10.3'
