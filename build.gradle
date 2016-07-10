@@ -333,7 +333,7 @@ task eclipseJar(type: Jar) {
     attributes(
       'Bundle-ManifestVersion': '2',
       'Bundle-SymbolicName': "${project.name};singleton:=true",
-      'Bundle-Version': version ?: '0.0.0',
+      'Bundle-Version': System.env.TRAVIS_TAG ?: '0.0.0',
       'Bundle-RequiredExecutionEnvironment': "JavaSE-${compileJava.sourceCompatibility}",
       'Bundle-Vendor': project.group,
       'Bundle-ClassPath': "${project.name}.jar,${runtimeJars}",
