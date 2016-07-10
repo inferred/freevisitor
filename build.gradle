@@ -122,6 +122,16 @@ jar {
 shadowJar {
   classifier = null
 
+  manifest {
+    inheritFrom(project.tasks.jar.manifest) {
+      eachEntry {
+        if (!key.startsWith('Bundle-')) {
+          exclude()
+        }
+      }
+    }
+  }
+
   ['com.google', 'org.apache', 'org.eclipse', 'org.osgi', 'org.inferred.internal'].each {
     relocate it, "${project.group}.${project.name}.shaded.$it"
   }
