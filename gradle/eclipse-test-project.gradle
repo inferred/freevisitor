@@ -1,0 +1,111 @@
+import org.gradle.api.internal.plugins.DslObject
+import org.gradle.internal.xml.XmlTransformer
+import org.gradle.plugins.ide.api.XmlFileContentMerger
+import org.gradle.plugins.ide.eclipse.GenerateEclipseClasspath
+import org.gradle.plugins.ide.eclipse.GenerateEclipseJdt
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
+import org.gradle.plugins.ide.eclipse.model.Container
+import org.gradle.plugins.ide.eclipse.model.EclipseClasspath
+import org.gradle.plugins.ide.eclipse.model.EclipseModel
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
+
+void setFilter(project, path, filter) {
+  project.file.withXml {
+    if (asNode().find { it.name() == 'filteredResources' } == null) {
+      asNode().append(new XmlParser().parseText("""
+        <filteredResources>
+          <filter>
+            <id>""" + System.currentTimeMillis() + """</id>
+            <name>${path}</name>
+            <type>9</type>
+            <matcher>
+              <id>org.eclipse.ui.ide.multiFilter</id>
+              <arguments>1.0-name-matches-true-false-${filter}</arguments>
+            </matcher>
+          </filter>
+        </filteredResources>
+      """))
+    }
+  }
+}
+
+eclipse.classpath {
+  file.whenMerged {
+    // Only compile src/main/java
+    entries.removeAll { it instanceof SourceFolder && it.path != 'src/main/java' }
+  }
+}
+// Exclude everything in src except src/main
+setFilter(eclipse.project, 'src', 'main')
+
+extensions.create('eclipseTest', EclipseModel)
+
+task eclipseTestProject(type: GenerateEclipseProject) {
+  description = 'Generates the Eclipse test project file.'
+  inputFile = project.file('.test/.project')
+  outputFile = inputFile
+  projectModel.name = project.name + '-test'
+  projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
+  projectModel.natures 'org.eclipse.jdt.core.javanature'
+  projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src'
+  setFilter(projectModel, 'src', 'test')
+  eclipseTest.project = projectModel
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseTestProject(type: Delete) {
+  delete { eclipseTestProject.outputFile }
+  tasks.cleanEclipse.dependsOn it
+}
+
+task eclipseTestJdt(type: GenerateEclipseJdt) {
+  description = 'Generates the Eclipse test JDT settings file.'
+  inputFile = project.file('.test/.settings/org.eclipse.jdt.core.prefs')
+  outputFile = inputFile
+  eclipseTest.jdt = jdt
+  jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileTestJava.sourceCompatibility) }
+  jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileTestJava.targetCompatibility) }
+  jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseTestJdt(type: Delete) {
+  delete { eclipseTestJdt.outputFile }
+  tasks.cleanEclipse.dependsOn it
+}
+
+task eclipseTestClasspath(type: GenerateEclipseClasspath) {
+  description = 'Generates the Eclipse test classpath file.'
+  inputFile = project.file('.test/.classpath')
+  outputFile = inputFile
+  classpath = new EclipseClasspath(project)
+  classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
+  classpath.sourceSets = []
+  project.afterEvaluate {
+    Set<String> containers = new LinkedHashSet<>()
+    containers.add(
+        'org.eclipse.jdt.launching.JRE_CONTAINER/'
+            + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
+            + eclipseTest.jdt.javaRuntimeName + '/')
+    containers.addAll(classpath.containers)
+    classpath.containers = containers
+  }
+  classpath.plusConfigurations += [
+    configurations.testCompileClasspath
+  ]
+  classpath.defaultOutputDir = project.file('.test/bin')
+  dependsOn sourceSets.main.output.dirs
+  dependsOn sourceSets.test.output.dirs
+  eclipseTest.classpath = classpath
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseTestClasspath(type: Delete) {
+  delete { eclipseTestClasspath.outputFile }
+  tasks.cleanEclipse.dependsOn it
+}
+
+eclipseTest.classpath.file.beforeMerged {
+  entries += [
+    new SourceFolder('/' + project.name, null),
+    new SourceFolder('src/test/java', null)
+  ]
+}

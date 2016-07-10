@@ -1,0 +1,58 @@
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+
+plugins.withId('checkstyle') {
+  checkstyle {
+    configProperties['config_loc'] = "$projectDir/config/checkstyle"
+  }
+
+  tasks.withType(Checkstyle).each { checkstyleTask ->
+    checkstyleTask.doLast {
+      reports.all { report ->
+        def outputFile = report.destination
+        if (outputFile.exists() && outputFile.text.contains('<error ')) {
+          throw new GradleException("There were checkstyle warnings! See $outputFile")
+        }
+      }
+    }
+  }
+
+  tasks.withType(GenerateEclipseProject, { generateTask ->
+    afterEvaluate {
+      generateTask.projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
+      generateTask.projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
+    }
+
+    def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
+    def createTask = task(taskName) {
+      ext.enabled = true
+      ext.outputFile = { new File(generateTask.outputFile.parentFile, '.checkstyle') }
+      outputs.file outputFile
+      doLast {
+        def output = file(outputFile)
+        output.parentFile.mkdirs()
+        output.delete()
+        if (enabled) {
+          output << """
+            <?xml version="1.0" encoding="UTF-8"?>
+
+            <fileset-config file-format-version="1.2.0" simple-config="false" sync-formatter="false">
+              <local-check-config name="Gradle configuration file" location="${checkstyle.configFile}" type="external" description="">
+                <additional-data name="protect-config-file" value="true"/>
+              </local-check-config>
+              <fileset name="all" enabled="true" check-config-name="Gradle configuration file" local="true">
+                <file-match-pattern match-pattern=".java\$" include-pattern="true"/>
+              </fileset>
+              <filter name="DerivedFiles" enabled="true"/>
+            </fileset-config>
+          """.replaceFirst('\n', '').stripIndent()
+        }
+      }
+      tasks.eclipse.dependsOn it
+    }
+    def cleanTaskName = 'clean' + taskName.substring(0, 1).toUpperCase() + taskName.substring(1, taskName.length())
+    task(cleanTaskName, type: Delete) {
+      delete createTask.outputFile
+      tasks.cleanEclipse.dependsOn it
+    }
+  })
+}

@@ -1,0 +1,104 @@
+//// Publication /////////////////////////////////////////////////
+project.version = (System.env.TRAVIS_TAG
+                  ?: System.env.CIRCLE_TAG
+                  ?: gitVersion()).replaceAll('^v','')
+
+import java.util.regex.Matcher
+def remote = 'origin'
+def remoteUrl = "git remote get-url ${remote}".execute().text.trim()
+switch (remoteUrl) {
+  case ~'([^@:/]+)@([^@:/]+):([^/].*)\\.git':
+    def m = Matcher.lastMatcher[0]
+    project.ext.github = [
+      'user': m[1],
+      'domain': m[2],
+      'slug': m[3]
+    ]
+    break
+  
+  case ~'https://([^/]+)/(.*)\\.git':
+    def m = Matcher.lastMatcher[0]
+    project.ext.github = [
+      'user': 'git',
+      'domain': m[1],
+      'slug': m[2]
+    ]
+    break
+}
+
+if (project.ext.has('github')) {
+  jar.manifest {
+    docURL = "https://${github.domain}/${github.slug}/tree/"
+    if (System.env.TRAVIS_TAG) {
+      docURL += "tags/${System.env.TRAVIS_TAG}"
+    } else {
+      docURL += 'git rev-parse HEAD'.execute().text.trim()
+    }
+  }
+}
+
+plugins.withId('com.bmuschko.nexus') {
+  modifyPom {
+    project {
+      if (jar.manifest.name) {
+        name jar.manifest.name
+      }
+      packaging 'jar'
+      artifactId project.name
+      if (jar.manifest.description) {
+        description jar.manifest.description
+      }
+
+      if (project.ext.has('github')) {
+        scm {
+          url "https://${github.domain}/${github.slug}"
+          connection "scm:git:git://${github.domain}/${github.slug}.git"
+          developerConnection "scm:git:${github.user}@${github.domain}:${github.slug}.git"
+        }
+      }
+
+      if (jar.manifest.license) {
+        licenses {
+          license {
+            url jar.manifest.license
+            if (jar.manifest.license == 'http://www.apache.org/licenses/LICENSE-2.0.txt') {
+              name 'Apache 2.0'
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+plugins.withId('com.github.johnrengelman.shadow') {
+  plugins.withType(OsgiPlugin) {
+    shadowJar {
+      manifest {
+        inheritFrom(project.tasks.jar.manifest) {
+          eachEntry {
+            if (!key.startsWith('Bundle-')) {
+              exclude()
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+plugins.withId('com.bmuschko.nexus') {
+  if (System.env.PGP_KEY_ID) {
+    ext['signing.keyId'] = System.env.PGP_KEY_ID
+    ext['signing.password'] = System.env.PGP_PASSWORD
+    ext['signing.secretKeyRingFile'] = System.env.PGP_SECRET_KEY_RING_FILE
+  }
+}
+
+plugins.withId('io.codearte.nexus-staging') {
+  ext['nexusUsername'] = System.env.NEXUS_USERNAME
+  ext['nexusPassword'] = System.env.NEXUS_PASSWORD
+}
+
+apply plugin: 'io.codearte.nexus-staging'
+

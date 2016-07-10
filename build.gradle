@@ -51,6 +51,8 @@ dependencies {
 }
 
 if (System.env.CI == 'true') {
+  // Continuous integration environments may assume the build has
+  // hung if output stops.
   tasks.withType(Test) {
     testLogging {
       events 'passed', 'skipped', 'failed'
@@ -59,62 +61,10 @@ if (System.env.CI == 'true') {
 }
 
 //// Checkstyle //////////////////////////////////////////////////
+apply from: 'gradle/checkstyle.gradle'
 checkstyle {
   toolVersion = '6.19'
-  configProperties['config_loc'] = "$projectDir/config/checkstyle"
 }
-
-tasks.withType(Checkstyle).each { checkstyleTask ->
-  checkstyleTask.doLast {
-    reports.all { report ->
-      def outputFile = report.destination
-      if (outputFile.exists() && outputFile.text.contains('<error ')) {
-        throw new GradleException("There were checkstyle warnings! See $outputFile")
-      }
-    }
-  }
-}
-
-import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
-tasks.withType(GenerateEclipseProject, { generateTask ->
-  afterEvaluate {
-    generateTask.projectModel.natures 'net.sf.eclipsecs.core.CheckstyleNature'
-    generateTask.projectModel.buildCommand 'net.sf.eclipsecs.core.CheckstyleBuilder'
-  }
-
-  def taskName = generateTask.name.replaceAll('Project$','') + 'Checkstyle'
-  def createTask = task(taskName) {
-    ext.enabled = true
-    ext.outputFile = { new File(generateTask.outputFile.parentFile, '.checkstyle') }
-    outputs.file outputFile
-    doLast {
-      def output = file(outputFile)
-      output.parentFile.mkdirs()
-      output.delete()
-      if (enabled) {
-        output << """
-          <?xml version="1.0" encoding="UTF-8"?>
-
-          <fileset-config file-format-version="1.2.0" simple-config="false" sync-formatter="false">
-            <local-check-config name="Gradle configuration file" location="${checkstyle.configFile}" type="external" description="">
-              <additional-data name="protect-config-file" value="true"/>
-            </local-check-config>
-            <fileset name="all" enabled="true" check-config-name="Gradle configuration file" local="true">
-              <file-match-pattern match-pattern=".java\$" include-pattern="true"/>
-            </fileset>
-            <filter name="DerivedFiles" enabled="true"/>
-          </fileset-config>
-        """.replaceFirst('\n', '').stripIndent()
-      }
-    }
-    tasks.eclipse.dependsOn it
-  }
-  def cleanTaskName = 'clean' + taskName.substring(0, 1).toUpperCase() + taskName.substring(1, taskName.length())
-  task(cleanTaskName, type: Delete) {
-    delete createTask.outputFile
-    tasks.cleanEclipse.dependsOn it
-  }
-})
 
 //// Shadow JAR //////////////////////////////////////////////////
 jar {
@@ -124,8 +74,10 @@ jar {
 shadowJar {
   classifier = null
 
-  ['com.google', 'org.apache', 'org.eclipse', 'org.osgi', 'org.inferred.internal'].each {
-    relocate it, "${project.group}.${project.name}.shaded.$it"
+  afterEvaluate {
+    ['com.google', 'org.apache', 'org.eclipse', 'org.osgi', 'org.inferred.internal'].each {
+      relocate it, "${project.group}.${project.name}.shaded.$it"
+    }
   }
 
   // Exclude common META-INF detritus
@@ -190,87 +142,26 @@ task shadowTest {
 }
 
 //// J8 integration tests ////////////////////////////////////////
-configurations {
-  j8Compile
-  j8TestCompile.extendsFrom j8Compile
-}
+apply from: 'gradle/integration-testing.gradle'
+processorIntegrationTest('j8')
+
 dependencies {
   j8Compile guava
   j8Compile gwtUser
   j8TestCompile junit
 }
-
-sourceSets {
-  j8 {
-    java {
-      srcDir file('src/it/j8/main/java')
-      compileClasspath += shadowJar.outputs.files
-    }
-  }
-  j8Test {
-    java {
-      srcDir file('src/it/j8/test/java')
-      compileClasspath += j8.output
-      runtimeClasspath += j8.output
-    }
-  }
-}
-
-task j8Test(type: Test) {
-  description 'Runs the Java 8 integration tests.'
-  group = 'Verification'
-  check.dependsOn it
-  shouldRunAfter test
-  testClassesDir = sourceSets.j8Test.output.classesDir
-  classpath = sourceSets.j8Test.runtimeClasspath
-  reports {
-    html {
-      destination "$reportsDir/j8"
-    }
-  }
-}
+eclipseJ8Test.project.linkedResource name: 'src/main/java/org/inferred/freevisitor/FreeVisitor.java', type:'1', location: 'PARENT-1-PROJECT_LOC/src/main/java/org/inferred/freevisitor/FreeVisitor.java'
 
 //// Publication /////////////////////////////////////////////////
+apply plugin: 'io.codearte.nexus-staging'
+apply from: 'gradle/publication.gradle'
+
 group = 'org.inferred'
-version = (System.env.TRAVIS_TAG ?: gitVersion()).replaceAll('^v','')
-
-import java.util.regex.Matcher
-def remote = 'origin'
-def remoteUrl = "git remote get-url ${remote}".execute().text.trim()
-def github
-switch (remoteUrl) {
-  case ~'([^@:/]+)@([^@:/]+):([^/].*)\\.git':
-    def m = Matcher.lastMatcher[0]
-    github = [
-      'user': m[1],
-      'domain': m[2],
-      'slug': m[3]
-    ]
-    break
-  
-  case ~'https://([^/]+)/(.*)\\.git':
-    def m = Matcher.lastMatcher[0]
-    github = [
-      'user': 'git',
-      'domain': m[1],
-      'slug': m[2]
-    ]
-    break
-
-  default:
-    throw new RuntimeException("Unrecognised remote URL: ${remoteUrl}")
-}
 
 jar.manifest {
   name = 'FreeVisitor'
   description = 'Automatic generation of the Visitor pattern for Java 1.8+'
   license = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-  docURL = "https://${github.domain}/${github.slug}/tree/"
-  if (System.env.TRAVIS_TAG) {
-    docURL += "tags/${System.env.TRAVIS_TAG}"
-  } else {
-    docURL += 'git rev-parse HEAD'.execute().text.trim()
-  }
 }
 
 artifacts {
@@ -279,24 +170,7 @@ artifacts {
 
 modifyPom {
   project {
-    name jar.manifest.name
-    packaging 'jar'
-    artifactId project.name
-    description jar.manifest.description
     url "http://${project.name}.inferred.org/"
-
-    scm {
-      url "https://${github.domain}/${github.slug}"
-      connection "scm:git:git://${github.domain}/${github.slug}.git"
-      developerConnection "scm:git:${github.user}@${github.domain}:${github.slug}.git"
-    }
-
-    licenses {
-      license {
-        name 'Apache 2.0'
-        url jar.manifest.license
-      }
-    }
 
     developers {
       developer {
@@ -309,352 +183,6 @@ modifyPom {
   }
 }
 
-plugins.withId('com.github.johnrengelman.shadow') {
-  plugins.withType(OsgiPlugin) {
-    shadowJar {
-      manifest {
-        inheritFrom(project.tasks.jar.manifest) {
-          eachEntry {
-            if (!key.startsWith('Bundle-')) {
-              exclude()
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-if (System.env.PGP_KEY_ID) {
-  ext['signing.keyId'] = System.env.PGP_KEY_ID
-  ext['signing.password'] = System.env.PGP_PASSWORD
-  ext['signing.secretKeyRingFile'] = System.env.PGP_SECRET_KEY_RING_FILE
-}
-ext['nexusUsername'] = System.env.NEXUS_USERNAME
-ext['nexusPassword'] = System.env.NEXUS_PASSWORD
-
-apply plugin: 'io.codearte.nexus-staging'
-
 //// Eclipse /////////////////////////////////////////////////////
-eclipse.processors.outputDir = 'generated_src'
-import org.gradle.plugins.ide.eclipse.model.Container
-import org.gradle.plugins.ide.eclipse.model.SourceFolder
-eclipse.classpath {
-  plusConfigurations.clear()
-  file.beforeMerged {
-    configure([ new Container('org.eclipse.pde.core.requiredPlugins') ])
-  }
-  file.whenMerged {
-    // Only compile src/main/java
-    entries.removeAll { it instanceof SourceFolder && it.path != 'src/main/java' }
-  }
-}
-// Exclude everything in src except src/main
-eclipse.project.file.withXml {
-  if (asNode().find { it.name() == 'filteredResources' } == null) {
-    asNode().append(new XmlParser().parseText("""
-      <filteredResources>
-        <filter>
-          <id>""" + System.currentTimeMillis() + """</id>
-          <name>src</name>
-          <type>9</type>
-          <matcher>
-            <id>org.eclipse.ui.ide.multiFilter</id>
-            <arguments>1.0-name-matches-false-false-main</arguments>
-          </matcher>
-        </filter>
-      </filteredResources>
-    """))
-  }
-}
-
-// Set up plugin nature
-eclipse.project {
-  natures 'org.eclipse.pde.PluginNature'
-  buildCommand 'org.eclipse.pde.ManifestBuilder'
-  buildCommand 'org.eclipse.pde.SchemaBuilder'
-}
-
-// Copy runtime JARs to plugin/jars
-task eclipsePluginJars(type: Sync) {
-  from configurations.runtime
-  into 'plugin/jars'
-  include '*.jar'
-  tasks.eclipse.dependsOn it
-  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginJars
-}
-
-// Copy processor JARs to plugin/processor-jars
-task eclipsePluginProcessorJars(type: Sync) {
-  from configurations.processor
-  into 'plugin/processor-jars'
-  include '*.jar'
-  tasks.eclipse.dependsOn it
-  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginProcessorJars
-}
-
-// Write build.properties
-import java.nio.file.Path
-task eclipseBuildProperties {
-  ext.output = file('build.properties')
-  dependsOn tasks.eclipsePluginJars, tasks.eclipsePluginProcessorJars
-  inputs.file eclipsePluginJars.outputs
-  outputs.file output
-  doLast {
-    output.withWriter('UTF-8') {
-      it.write "source.${project.name}.jar = src/main/java/\n"
-      it.write "jars.compile.order = ${project.name}.jar\n"
-      it.write "output.${project.name}.jar = bin/\n"
-      it.write 'bin.includes = META-INF/,\\\n'
-      it.write '               plugin.xml'
-      for (File jar : file('plugin/jars').listFiles()) {
-        Path relativePath = file('.').toPath().relativize(jar.toPath())
-        it.write ',\\\n               ' + relativePath
-      }
-      it.write '\n'
-      it.write 'jars.extra.classpath = '
-      def prefix = ''
-      def compileJars = file('plugin/jars').listFiles() + file('plugin/processor-jars').listFiles()
-      for (File jar : compileJars) {
-        Path relativePath = file('.').toPath().relativize(jar.toPath())
-        it.write "$prefix$relativePath"
-        prefix = ',\\\n                       '
-      }
-      it.write '\n'
-    }
-  }
-  tasks.eclipse.dependsOn it
-}
-task cleanEclipseBuildProperties(type: Delete) {
-  delete eclipseBuildProperties.output
-  tasks.cleanEclipse.dependsOn it
-}
-
-// Write META-INF/MANIFEST.MF
-task eclipseJar(type: Jar) {
-  dependsOn tasks.eclipsePluginJars
-  manifest {
-    def runtimeJars = """${ -> (file('plugin/jars')
-        .listFiles()
-        .collect { file('.').toPath().relativize(it.toPath()) }
-        .join(','))
-    }"""
-    attributes(
-      'Bundle-ManifestVersion': '2',
-      'Bundle-SymbolicName': "${project.name};singleton:=true",
-      'Bundle-Version': System.env.TRAVIS_TAG ?: '0.0.0',
-      'Bundle-RequiredExecutionEnvironment': "JavaSE-${compileJava.sourceCompatibility}",
-      'Bundle-Vendor': project.group,
-      'Bundle-ClassPath': "${project.name}.jar,${runtimeJars}",
-    )
-    from 'config/manifest.mf'
-  }
-}
-task eclipseManifest {
-  dependsOn tasks.eclipsePluginJars
-  ext.output = file('META-INF/MANIFEST.MF')
-  inputs.file file('config/manifest.mf')
-  outputs.file output
-  doLast {
-    eclipseJar.manifest.writeTo(output)
-  }
-  tasks.eclipse.dependsOn it
-}
-task cleanEclipseManifest(type: Delete) {
-  delete eclipseManifest.output
-  tasks.cleanEclipse.dependsOn it
-}
-
-import org.gradle.plugins.ide.eclipse.model.EclipseModel
-extensions.create('eclipseTest', EclipseModel)
-extensions.create('eclipseJ8Test', EclipseModel)
-
-import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
-import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
-task eclipseTestProject(type: GenerateEclipseProject) {
-  description = 'Generates the Eclipse test project file.'
-  inputFile = project.file('.test/.project')
-  outputFile = inputFile
-  projectModel.name = project.name + '-test'
-  projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
-  projectModel.natures 'org.eclipse.jdt.core.javanature'
-  projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src'
-  eclipseTest.project = projectModel
-  tasks.eclipse.dependsOn it
-}
-task eclipseJ8TestProject(type: GenerateEclipseProject) {
-  description = 'Generates the Eclipse Java 8 test project file.'
-  inputFile = project.file('.j8test/.project')
-  outputFile = inputFile
-  projectModel.name = project.name + '-test-j8'
-  projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
-  projectModel.natures 'org.eclipse.jdt.core.javanature'
-  projectModel.linkedResource name: 'src', type:'2', location: 'PARENT-1-PROJECT_LOC/src/it/j8'
-  projectModel.linkedResource name: 'src/main/java/org/inferred/freevisitor/FreeVisitor.java', type:'1', location: 'PARENT-1-PROJECT_LOC/src/main/java/org/inferred/freevisitor/FreeVisitor.java'
-  eclipseJ8Test.project = projectModel
-  tasks.eclipse.dependsOn it
-}
-
-import org.gradle.plugins.ide.eclipse.GenerateEclipseJdt
-task eclipseTestJdt(type: GenerateEclipseJdt) {
-  description = 'Generates the Eclipse test JDT settings file.'
-  inputFile = project.file('.test/.settings/org.eclipse.jdt.core.prefs')
-  outputFile = inputFile
-  eclipseTest.jdt = jdt
-  jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileTestJava.sourceCompatibility) }
-  jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileTestJava.targetCompatibility) }
-  jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
-  tasks.eclipse.dependsOn it
-}
-task eclipseJ8TestJdt(type: GenerateEclipseJdt) {
-  description = 'Generates the Eclipse Java 8 test JDT settings file.'
-  inputFile = project.file('.j8test/.settings/org.eclipse.jdt.core.prefs')
-  outputFile = inputFile
-  eclipseJ8Test.jdt = jdt
-  jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileJ8TestJava.sourceCompatibility) }
-  jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileJ8TestJava.targetCompatibility) }
-  jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
-  tasks.eclipse.dependsOn it
-}
-
-import org.gradle.api.internal.plugins.DslObject
-import org.gradle.internal.xml.XmlTransformer
-import org.gradle.plugins.ide.api.XmlFileContentMerger
-import org.gradle.plugins.ide.eclipse.GenerateEclipseClasspath
-import org.gradle.plugins.ide.eclipse.model.EclipseClasspath
-task eclipseTestClasspath(type: GenerateEclipseClasspath) {
-  description = 'Generates the Eclipse test classpath file.'
-  inputFile = project.file('.test/.classpath')
-  outputFile = inputFile
-  classpath = new EclipseClasspath(project)
-  classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
-  classpath.sourceSets = []
-  project.afterEvaluate {
-    Set<String> containers = new LinkedHashSet<>()
-    containers.add(
-        'org.eclipse.jdt.launching.JRE_CONTAINER/'
-            + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
-            + eclipseTest.jdt.javaRuntimeName + '/')
-    containers.addAll(classpath.containers)
-    classpath.containers = containers
-  }
-  classpath.plusConfigurations += [
-    configurations.testCompileClasspath
-  ]
-  classpath.defaultOutputDir = project.file('.test/bin')
-  dependsOn sourceSets.main.output.dirs
-  dependsOn sourceSets.test.output.dirs
-  eclipseTest.classpath = classpath
-  tasks.eclipse.dependsOn it
-}
-task eclipseJ8TestClasspath(type: GenerateEclipseClasspath) {
-  description = 'Generates the Eclipse Java 8 test classpath file.'
-  inputFile = project.file('.j8test/.classpath')
-  outputFile = inputFile
-  classpath = new EclipseClasspath(project)
-  classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
-  classpath.sourceSets = []
-  project.afterEvaluate {
-    Set<String> containers = new LinkedHashSet<>()
-    containers.add(
-        'org.eclipse.jdt.launching.JRE_CONTAINER/'
-            + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
-            + eclipseJ8Test.jdt.javaRuntimeName + '/')
-    containers.addAll(classpath.containers)
-    classpath.containers = containers
-  }
-  classpath.plusConfigurations += [
-    configurations.j8TestCompileClasspath
-  ]
-  classpath.defaultOutputDir = project.file('.j8test/bin')
-  dependsOn sourceSets.main.output.dirs
-  dependsOn sourceSets.j8Test.output.dirs
-  eclipseJ8Test.classpath = classpath
-  tasks.eclipse.dependsOn it
-}
-
-void addClasspathEntry(def node, String... paths) {
-  for (String path : paths) {
-    if (node.find { it.@kind == 'src' && it.@path == path } == null) {
-      node.appendNode('classpathentry', [
-          combineaccessrules: path.startsWith('/') ? 'false' : 'true',
-          kind: 'src',
-          path: path
-      ])
-    }
-  }
-}
-
-eclipse.classpath.file.withXml { xml ->
-  //addClasspathEntry(xml.asNode(), '/source')
-}
-
-eclipseTest.classpath.file.withXml { xml ->
-  addClasspathEntry(xml.asNode(), '/' + project.name, 'src/test/java')
-  // Exclude everything in src except src/main
-  if (asNode().find { it.name() == 'filteredResources' } == null) {
-    asNode().append(new XmlParser().parseText("""
-      <filteredResources>
-        <filter>
-          <id>""" + System.currentTimeMillis() + """</id>
-          <name>src</name>
-          <type>9</type>
-          <matcher>
-            <id>org.eclipse.ui.ide.multiFilter</id>
-            <arguments>1.0-name-matches-false-false-test</arguments>
-          </matcher>
-        </filter>
-      </filteredResources>
-    """))
-  }
-}
-eclipseJ8Test.classpath.file.beforeMerged {
-  def generatedSource = new SourceFolder('bin/generated/java', null)
-  generatedSource.entryAttributes.put('optional', 'true')
-  configure([
-    new SourceFolder('src/main/java', null),
-    new SourceFolder('src/test/java', null),
-    generatedSource
-  ])
-}
-eclipseJ8Test.jdt.file.withProperties {
-  it['org.eclipse.jdt.core.compiler.processAnnotations'] = 'enabled'
-}
-task eclipseJ8TestAptPrefs {
-  ext.output = file('.j8test/.settings/org.eclipse.jdt.apt.core.prefs')
-  outputs.file output
-  doLast {
-    output.parentFile.mkdirs()
-    output.delete()
-    output << """
-      eclipse.preferences.version=1
-      org.eclipse.jdt.apt.aptEnabled=true
-      org.eclipse.jdt.apt.genSrcDir=bin/generated/java
-      org.eclipse.jdt.apt.reconcileEnabled=true
-    """.replaceFirst('\n', '').stripIndent()
-  }
-  tasks.eclipse.dependsOn it
-}
-task cleanEclipseJ8TestAptPrefs(type: Delete) {
-  delete eclipseJ8TestAptPrefs.output
-  tasks.cleanEclipse.dependsOn it
-}
-
-task eclipseJ8TestFactoryPath {
-  ext.output = file('.j8test/.factorypath')
-  outputs.file output
-  doLast {
-    output.parentFile.mkdirs()
-    output.delete()
-    output << """
-      <factorypath>
-        <factorypathentry kind="PLUGIN" id="freevisitor" enabled="true" runInBatchMode="false"/>
-      </factorypath>
-    """.replaceFirst('\n', '').stripIndent()
-  }
-  tasks.eclipse.dependsOn it
-}
-task cleanEclipseJ8TestFactoryPath(type: Delete) {
-  delete eclipseJ8TestFactoryPath.output
-  tasks.cleanEclipse.dependsOn it
-}
+apply from: 'gradle/eclipse-test-project.gradle'
+apply from: 'gradle/eclipse-plugin-nature.gradle'

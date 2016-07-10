@@ -1,0 +1,162 @@
+import org.gradle.api.internal.plugins.DslObject
+import org.gradle.internal.xml.XmlTransformer
+import org.gradle.plugins.ide.api.XmlFileContentMerger
+import org.gradle.plugins.ide.eclipse.GenerateEclipseClasspath
+import org.gradle.plugins.ide.eclipse.GenerateEclipseJdt
+import org.gradle.plugins.ide.eclipse.GenerateEclipseProject
+import org.gradle.plugins.ide.eclipse.internal.LinkedResourcesCreator
+import org.gradle.plugins.ide.eclipse.model.Container
+import org.gradle.plugins.ide.eclipse.model.EclipseClasspath
+import org.gradle.plugins.ide.eclipse.model.EclipseModel
+import org.gradle.plugins.ide.eclipse.model.SourceFolder
+
+project.ext.processorIntegrationTest = { String testName ->
+  def capsName = testName.substring(0,1).toUpperCase() + testName.substring(1, testName.size())
+  def mainSrc = project.sourceSets.create(testName) {
+    java {
+      srcDir project.file("src/it/${testName}/main/java")
+      compileClasspath += project.shadowJar.outputs.files
+    }
+  }
+  def testSrc = project.sourceSets.create("${testName}Test") {
+      java {
+        srcDir file("src/it/${testName}/test/java")
+        compileClasspath += mainSrc.output
+        runtimeClasspath += mainSrc.output
+      }
+  }
+
+  def configs = project.configurations
+  configs["${testName}TestCompile"].extendsFrom configs["${testName}Compile"]
+
+  project.task("${testName}Test", type: Test) {
+    description "Runs the ${capsName} integration tests."
+    group = 'Verification'
+    check.dependsOn it
+    shouldRunAfter test
+    testClassesDir = testSrc.output.classesDir
+    classpath = testSrc.runtimeClasspath
+    reports {
+      html {
+        destination "${reportsDir}/${testName}"
+      }
+    }
+  }
+
+  project.plugins.withId('eclipse') {
+    def extension = project.extensions.create("eclipse${capsName}Test", EclipseModel)
+
+    def projectTask = project.task("eclipse${capsName}TestProject", type: GenerateEclipseProject) {
+      description = "Generates the Eclipse ${capsName} test project file."
+      inputFile = project.file(".${testName}test/.project")
+      outputFile = inputFile
+      projectModel.name = project.name + "-test-${testName}"
+      projectModel.buildCommand 'org.eclipse.jdt.core.javabuilder'
+      projectModel.natures 'org.eclipse.jdt.core.javanature'
+      projectModel.linkedResource name: 'src', type:'2', location: "PARENT-1-PROJECT_LOC/src/it/${testName}"
+      extension.project = projectModel
+      project.tasks.eclipse.dependsOn it
+    }
+    project.task("cleanEclipse${capsName}TestProject", type: Delete) {
+      delete { projectTask.outputFile }
+      project.tasks.cleanEclipse.dependsOn it
+    }
+
+    def jdtTask = project.task("eclipse${capsName}TestJdt", type: GenerateEclipseJdt) {
+      description = "Generates the Eclipse ${capsName} test JDT settings file."
+      inputFile = project.file(".${testName}test/.settings/org.eclipse.jdt.core.prefs")
+      outputFile = inputFile
+      extension.jdt = jdt
+      def compileTask = project.tasks["compile${capsName}TestJava"]
+      jdt.conventionMapping.map('sourceCompatibility') { JavaVersion.toVersion(compileTask.sourceCompatibility) }
+      jdt.conventionMapping.map('targetCompatibility') { JavaVersion.toVersion(compileTask.targetCompatibility) }
+      jdt.conventionMapping.map('javaRuntimeName') { 'JavaSE-' + jdt.targetCompatibility }
+      tasks.eclipse.dependsOn it
+    }
+    project.task("cleanEclipse${capsName}TestJdt", type: Delete) {
+      delete { jdtTask.outputFile }
+      project.tasks.cleanEclipse.dependsOn it
+    }
+
+    def classpathTask = project.task("eclipse${capsName}TestClasspath", type: GenerateEclipseClasspath) {
+      description = "Generates the Eclipse ${capsName} test classpath file."
+      inputFile = project.file(".${testName}test/.classpath")
+      outputFile = inputFile
+      classpath = new EclipseClasspath(project)
+      classpath.file = new XmlFileContentMerger((XmlTransformer) getProperty('xmlTransformer'))
+      classpath.sourceSets = []
+      project.afterEvaluate {
+        Set<String> containers = new LinkedHashSet<>()
+        containers.add(
+            'org.eclipse.jdt.launching.JRE_CONTAINER/'
+                + 'org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/'
+                + extension.jdt.javaRuntimeName + '/')
+        containers.addAll(classpath.containers)
+        classpath.containers = containers
+      }
+      classpath.plusConfigurations += [
+        project.configurations["${testName}TestCompileClasspath"]
+      ]
+      classpath.defaultOutputDir = project.file(".${testName}test/bin")
+      dependsOn sourceSets.main.output.dirs
+      dependsOn testSrc.output.dirs
+      extension.classpath = classpath
+      tasks.eclipse.dependsOn it
+    }
+    project.task("cleanEclipse${capsName}TestClasspath", type: Delete) {
+      delete { classpathTask.outputFile }
+      project.tasks.cleanEclipse.dependsOn it
+    }
+
+    extension.classpath.file.beforeMerged {
+      def generatedSource = new SourceFolder('bin/generated/java', null)
+      generatedSource.entryAttributes.put('optional', 'true')
+      configure([
+        new SourceFolder('src/main/java', null),
+        new SourceFolder('src/test/java', null),
+        generatedSource
+      ])
+    }
+    extension.jdt.file.withProperties {
+      it['org.eclipse.jdt.core.compiler.processAnnotations'] = 'enabled'
+    }
+    def aptTask = project.task("eclipse${capsName}TestAptPrefs") {
+      ext.output = file(".${testName}test/.settings/org.eclipse.jdt.apt.core.prefs")
+      outputs.file { output }
+      doLast {
+        output.parentFile.mkdirs()
+        output.delete()
+        output << """
+          eclipse.preferences.version=1
+          org.eclipse.jdt.apt.aptEnabled=true
+          org.eclipse.jdt.apt.genSrcDir=bin/generated/java
+          org.eclipse.jdt.apt.reconcileEnabled=true
+        """.replaceFirst('\n', '').stripIndent()
+      }
+      project.tasks.eclipse.dependsOn it
+    }
+    project.task("cleanEclipse${capsName}TestAptPrefs", type: Delete) {
+      delete { aptTask.output }
+      project.tasks.cleanEclipse.dependsOn it
+    }
+
+    def factoryTask = task("eclipse${capsName}TestFactoryPath") {
+      ext.output = file(".${testName}test/.factorypath")
+      outputs.file { output }
+      doLast {
+        output.parentFile.mkdirs()
+        output.delete()
+        output << """
+          <factorypath>
+            <factorypathentry kind="PLUGIN" id="${project.name}" enabled="true" runInBatchMode="false"/>
+          </factorypath>
+        """.replaceFirst('\n', '').stripIndent()
+      }
+      tasks.eclipse.dependsOn it
+    }
+    task("cleanEclipse${capsName}TestFactoryPath", type: Delete) {
+      delete { factoryTask.output }
+      tasks.cleanEclipse.dependsOn it
+    }
+  }
+}

@@ -1,0 +1,107 @@
+import java.nio.file.Path
+import org.gradle.plugins.ide.eclipse.model.Container
+
+eclipse.processors.outputDir = 'generated_src'
+
+eclipse.classpath {
+  plusConfigurations.clear()
+  file.beforeMerged {
+    configure([ new Container('org.eclipse.pde.core.requiredPlugins') ])
+  }
+}
+
+// Set up plugin nature
+eclipse.project {
+  natures 'org.eclipse.pde.PluginNature'
+  buildCommand 'org.eclipse.pde.ManifestBuilder'
+  buildCommand 'org.eclipse.pde.SchemaBuilder'
+}
+
+// Copy runtime JARs to plugin/jars
+task eclipsePluginJars(type: Sync) {
+  from configurations.runtime
+  into 'plugin/jars'
+  include '*.jar'
+  tasks.eclipse.dependsOn it
+  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginJars
+}
+
+// Copy processor JARs to plugin/processor-jars
+task eclipsePluginProcessorJars(type: Sync) {
+  from configurations.processor
+  into 'plugin/processor-jars'
+  include '*.jar'
+  tasks.eclipse.dependsOn it
+  tasks.cleanEclipse.dependsOn tasks.cleanEclipsePluginProcessorJars
+}
+
+// Write build.properties
+task eclipseBuildProperties {
+  ext.output = file('build.properties')
+  dependsOn tasks.eclipsePluginJars, tasks.eclipsePluginProcessorJars
+  inputs.file eclipsePluginJars.outputs
+  outputs.file output
+  doLast {
+    output.withWriter('UTF-8') {
+      it.write "source.${project.name}.jar = src/main/java/\n"
+      it.write "jars.compile.order = ${project.name}.jar\n"
+      it.write "output.${project.name}.jar = bin/\n"
+      it.write 'bin.includes = META-INF/,\\\n'
+      it.write '               plugin.xml'
+      for (File jar : file('plugin/jars').listFiles()) {
+        Path relativePath = file('.').toPath().relativize(jar.toPath())
+        it.write ',\\\n               ' + relativePath
+      }
+      it.write '\n'
+      it.write 'jars.extra.classpath = '
+      def prefix = ''
+      def compileJars = file('plugin/jars').listFiles() + file('plugin/processor-jars').listFiles()
+      for (File jar : compileJars) {
+        Path relativePath = file('.').toPath().relativize(jar.toPath())
+        it.write "$prefix$relativePath"
+        prefix = ',\\\n                       '
+      }
+      it.write '\n'
+    }
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseBuildProperties(type: Delete) {
+  delete { eclipseBuildProperties.output }
+  tasks.cleanEclipse.dependsOn it
+}
+
+// Write META-INF/MANIFEST.MF
+task eclipseJarManifest(type: Jar) {
+  dependsOn tasks.eclipsePluginJars
+  manifest {
+    def runtimeJars = """${ -> (file('plugin/jars')
+        .listFiles()
+        .collect { file('.').toPath().relativize(it.toPath()) }
+        .join(','))
+    }"""
+    attributes(
+      'Bundle-ManifestVersion': '2',
+      'Bundle-SymbolicName': "${project.name};singleton:=true",
+      'Bundle-Version': '0.0.0',
+      'Bundle-RequiredExecutionEnvironment': "JavaSE-${compileJava.sourceCompatibility}",
+      'Bundle-Vendor': project.group,
+      'Bundle-ClassPath': "${project.name}.jar,${runtimeJars}",
+    )
+    from 'config/manifest.mf'
+  }
+}
+task eclipseManifest {
+  dependsOn tasks.eclipsePluginJars
+  ext.output = file('META-INF/MANIFEST.MF')
+  inputs.file file('config/manifest.mf')
+  outputs.file output
+  doLast {
+    eclipseJarManifest.manifest.writeTo(output)
+  }
+  tasks.eclipse.dependsOn it
+}
+task cleanEclipseManifest(type: Delete) {
+  delete { eclipseManifest.output }
+  tasks.cleanEclipse.dependsOn it
+}
