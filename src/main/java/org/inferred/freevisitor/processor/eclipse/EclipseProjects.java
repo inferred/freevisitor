@@ -24,7 +24,7 @@ public class EclipseProjects {
    * {@link javax.annotation.processing.RoundEnvironment#getRootElements() the round environment}.
    * This method allows that information to be recovered.
    *
-   * @returns all types in the current Eclipse project, or an empty stream if {@code elements}
+   * @return all types in the current Eclipse project, or an empty stream if {@code elements}
    *     is not provided by Eclipse
    */
   public static Stream<TypeElement> eclipseProjectTypes(Elements elements) {
