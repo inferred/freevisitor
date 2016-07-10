@@ -1,8 +1,19 @@
+buildscript {
+  repositories {
+    jcenter()
+  }
+  dependencies {
+    classpath 'de.richsource.gradle.plugins:gwt-gradle-plugin:0.6'
+    classpath 'io.codearte.gradle.nexus:gradle-nexus-staging-plugin:0.5.3'
+  }
+}
+
 plugins {
   id 'checkstyle'
   id 'eclipse'
   id 'java'
   id 'osgi'
+  id 'com.bmuschko.nexus' version '2.3.1'
   id 'com.github.johnrengelman.shadow' version '1.2.3'
   id 'com.palantir.git-version' version '0.2.0'
   id 'org.inferred.processors' version '1.2.4-rc2'
@@ -13,15 +24,6 @@ repositories {
 }
 
 sourceCompatibility = 1.8
-
-group = 'org.inferred'
-version = (System.env.TRAVIS_TAG ?: gitVersion()).replaceAll('^v','')
-jar.manifest {
-  name = 'FreeVisitor'
-  description = 'FreeVisitor: Automatic generation of the Visitor pattern for Java 1.8+'
-  license = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-  docURL = 'https://github.com/inferred/freevisitor/'
-}
 
 dependencies {
   compile commonsLang3
@@ -225,6 +227,95 @@ task j8Test(type: Test) {
     }
   }
 }
+
+//// Publication /////////////////////////////////////////////////
+group = 'org.inferred'
+version = (System.env.TRAVIS_TAG ?: gitVersion()).replaceAll('^v','')
+
+import java.util.regex.Matcher
+def remote = 'origin'
+def remoteUrl = "git remote get-url ${remote}".execute().text.trim()
+def github
+switch (remoteUrl) {
+  case ~'([^@:/]+)@([^@:/]+):([^/].*)\\.git':
+    def m = Matcher.lastMatcher[0]
+    github = [
+      'user': m[1],
+      'domain': m[2],
+      'slug': m[3]
+    ]
+    break
+  
+  case ~'https://([^/]+)/(.*)\\.git':
+    def m = Matcher.lastMatcher[0]
+    github = [
+      'user': 'git',
+      'domain': m[1],
+      'slug': m[2]
+    ]
+    break
+
+  default:
+    throw new RuntimeException("Unrecognised remote URL: ${remoteUrl}")
+}
+
+jar.manifest {
+  name = 'FreeVisitor'
+  description = 'Automatic generation of the Visitor pattern for Java 1.8+'
+  license = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+  docURL = "https://${github.domain}/${github.slug}/tree/"
+  if (System.env.TRAVIS_TAG) {
+    docURL += "tags/${System.env.TRAVIS_TAG}"
+  } else {
+    docURL += 'git rev-parse HEAD'.execute().text.trim()
+  }
+}
+
+artifacts {
+  archives shadowJar
+}
+
+modifyPom {
+  project {
+    name jar.manifest.name
+    packaging 'jar'
+    artifactId project.name
+    description jar.manifest.description
+    url "http://${project.name}.inferred.org/"
+
+    scm {
+      url "https://${github.domain}/${github.slug}"
+      connection "scm:git:git://${github.domain}/${github.slug}.git"
+      developerConnection "scm:git:${github.user}@${github.domain}:${github.slug}.git"
+    }
+
+    licenses {
+      license {
+        name 'Apache 2.0'
+        url jar.manifest.license
+      }
+    }
+
+    developers {
+      developer {
+        id 'chrisalice'
+        name 'Chris Purcell'
+        email 'Chris.Purcell.39@gmail.com'
+        timezone 'Europe/London'
+      }
+    }
+  }
+}
+
+if (System.env.PGP_KEY_ID) {
+  ext['signing.keyId'] = System.env.PGP_KEY_ID
+  ext['signing.password'] = System.env.PGP_PASSWORD
+  ext['signing.secretKeyRingFile'] = System.env.PGP_SECRET_KEY_RING_FILE
+}
+ext['nexusUsername'] = System.env.NEXUS_USERNAME
+ext['nexusPassword'] = System.env.NEXUS_PASSWORD
+
+apply plugin: 'io.codearte.nexus-staging'
 
 //// Eclipse /////////////////////////////////////////////////////
 eclipse.processors.outputDir = 'generated_src'
