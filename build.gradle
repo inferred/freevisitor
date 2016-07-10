@@ -50,9 +50,11 @@ dependencies {
   testCompile 'org.assertj:assertj-guava:3.0.0'
 }
 
-tasks.withType(Test) {
-  testLogging {
-    events 'passed', 'skipped', 'failed'
+if (System.env.CI == 'true') {
+  tasks.withType(Test) {
+    testLogging {
+      events 'passed', 'skipped', 'failed'
+    }
   }
 }
 
@@ -121,16 +123,6 @@ jar {
 
 shadowJar {
   classifier = null
-
-  manifest {
-    inheritFrom(project.tasks.jar.manifest) {
-      eachEntry {
-        if (!key.startsWith('Bundle-')) {
-          exclude()
-        }
-      }
-    }
-  }
 
   ['com.google', 'org.apache', 'org.eclipse', 'org.osgi', 'org.inferred.internal'].each {
     relocate it, "${project.group}.${project.name}.shaded.$it"
@@ -312,6 +304,22 @@ modifyPom {
         name 'Chris Purcell'
         email 'Chris.Purcell.39@gmail.com'
         timezone 'Europe/London'
+      }
+    }
+  }
+}
+
+plugins.withId('com.github.johnrengelman.shadow') {
+  plugins.withType(OsgiPlugin) {
+    shadowJar {
+      manifest {
+        inheritFrom(project.tasks.jar.manifest) {
+          eachEntry {
+            if (!key.startsWith('Bundle-')) {
+              exclude()
+            }
+          }
+        }
       }
     }
   }
