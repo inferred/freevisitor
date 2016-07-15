@@ -90,8 +90,9 @@ plugins.withId('com.github.johnrengelman.shadow') {
 plugins.withId('com.bmuschko.nexus') {
   if (System.env.PGP_KEY_ID) {
     ext['signing.keyId'] = System.env.PGP_KEY_ID
-    ext['signing.password'] = System.env.PGP_PASSWORD
-    ext['signing.secretKeyRingFile'] = System.env.PGP_SECRET_KEY_RING_FILE
+    ext['signing.password'] = System.env.PGP_PASSWORD ?: ""
+    ext['signing.secretKeyRingFile'] = (System.env.PGP_SECRET_KEY_RING_FILE
+        ?: "${System.properties['user.home']}/.gnupg/secring.gpg")
   }
 }
 
