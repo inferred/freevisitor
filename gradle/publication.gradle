@@ -4,6 +4,12 @@ project.version = (System.env.TRAVIS_TAG
                   ?: gitVersion()).replaceAll('^v','')
 
 import java.util.regex.Matcher
+println ''
+println '======================================='
+println 'Git details:'
+println 'git remote -v'.execute().text.trim()
+println '======================================='
+println ''
 def remote = 'origin'
 def remoteUrl = "git remote get-url ${remote}".execute().text.trim()
 switch (remoteUrl) {
