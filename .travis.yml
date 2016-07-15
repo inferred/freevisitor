@@ -3,3 +3,20 @@ install: ./gradlew clean jar
 script: ./gradlew check
 jdk:
   - oraclejdk8
+
+env:
+  global:
+    - PGP_KEY_ID="2887CE9B"
+      # NEXUS_USERNAME
+    - secure: "TVJ2hjxUPGP1dhs7EK4Af1UzZbE4NNwyxqR87vdsnY6ktDtF4wXf2T6eMeZLivlp8jiPECfUKyvzvi9+g1JQ0YExeXntQYYcCXIOqgxYxSujV8ngSULW3cZl80L25VThBD2Vp4xJiyA1pCAT7okrTG2fCXiFYM533KEw/5kbdcW2blAbYK+zf36lpM7w9xSVmp1qmkX16RL67UojS4/xIAN8009xwVTv2baxDaN7e/ST8BwKUbxP9ACWrmFaI02x7KkmP7Lr+fCDB2cRWEDFI4se0kiNQR2pLVgWXSwyzgnbX5eCn/kCWUkXz380ZOb0slmjQ41whWDcZ4LR+oqVuzS0PGGyBbDRcbDB5MdPqyhxnJezDv1OJrWj/nirVz0rNU/DpfqEWG2e1196zaQM7kEQfk0TIpuk+LMXNSUUJ706tv1wJFTA0KLQ2Qcir2YYs7Oo1Z2QxgtR3CMEGW8m5QhZV61ZXHsUI1kvlffc4JtbB1klepVmIAhVeSIenX59DLTTdCFPQqvbyf5snFax1OxqxHNGaliEWFmZojY+oD2o1wooDJhLooXUDw1ZZ814qd5Uc7tDuNpEnojsNz3w7Z+pg8WbApJTMV7aAdf7f8vCI8M+FhxckgaOthiTdcqjTcwAQhoK6Tbh+GgBohcryHyfuEcXNRtw5KFV3+F7W+c="
+      # NEXUS_PASSWORD
+    - secure: "rpEOAPvoz87MWhotMB8I0AveYJQERQWR5zNiTPumoHFpE6E0sL7jDxXuPPJ+i1nrSPw8Rak+W1PhsXk9ipg2GxOV/NGH8XeBi2UDDnQ3x4qqDfwcm85mheJFmdXbXfnzW7t7k+6KWJjTw0My7VlccQG/49Z7V/an2TXjwg+x7QEeeOJeJyqI4PkqdA5QMf/kdvS2qca9SKSyou+KtuQSLpZUBOC/tnabLRdWtZxCFB+BqnfPmuNQvXKIBHM+fMwpi1jx2ZdW7eHm3DBvTYOdoj7E/O6NkTF02MzY6tDeO1Bq57nV+u3mCUen6io4LLcUXObHe7Y0i1uPiYhz8w9G7TJs8zdiIpLPTJKxNf6cklG2yMXbnaOumuXiFVxpjqS0ZUGe1j7XOQ6kH8MLP02ve7b1x4149hQAhz2voTrnmC8rRmPKvCiKIpKwc0ZDezQjPA2vASf5AhMMYhAgubeAHs9W5oN/wkAq8c5XmAUR4uoSY8bEvg3zEPTpmYXXIsEBjj7EZ4cZzs3VrRjla5DJsP4SN8JWyyeigGbYNKJwe0gw/xtmyMicKf88G4J3rZvpt9tMDw03Qg97IaVG4SVj++KFxw8MEo6b7bONJEp/D9qLuMRIJW3HllJ50te/Lpa1DPAfPionUsd9EbPh0c70NWyCqsEy2NxoLCpxSXIYKwU="
+
+before_deploy: ./scripts/install_codesigning_key.sh
+
+deploy:
+  skip_cleanup: true
+  provider: script
+  script: ./gradlew upload closeAndPromoteRepository
+  on:
+    tags: true
